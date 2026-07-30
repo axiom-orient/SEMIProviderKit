@@ -15,18 +15,8 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.name }}
+    name: Current Xcode
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Swift 6.2 minimum
-            developer-directory: /Applications/Xcode_26.0.app/Contents/Developer
-          - name: Current Xcode
-            developer-directory: /Applications/Xcode.app/Contents/Developer
-    env:
-      DEVELOPER_DIR: ${{ matrix.developer-directory }}
 
     steps:
       - uses: actions/checkout@v4

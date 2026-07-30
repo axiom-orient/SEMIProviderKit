@@ -45,8 +45,8 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 
 - warnings-as-errors debug build/test: 87/87 통과
 - warnings-as-errors release build/test: 87/87 통과
-- GitHub Actions: macOS 26에서 Xcode 26.0의 Swift 6.2 최소 도구체인과 runner의
-  현재 Xcode를 각각 검증
+- GitHub Actions: macOS 26 runner의 현재 Xcode에서 format, architecture boundary,
+  warnings-as-errors debug·release test 검증
 - Thread Sanitizer: 87/87 통과, race 보고 없음
 - Address Sanitizer: 87/87 통과
 - `swift-format lint -r -s Sources Tests Package.swift`: 위반 없음
@@ -65,6 +65,8 @@ tag에서 생성하는 source archive는 게시 후 다시 확인한다.
 - OpenAI, Anthropic, Gemini, OpenRouter와 API-key Provider의 실제 계정별 live
   qualification은 credential이 없어 실행하지 못했다.
 - 실제 OpenRouter browser 승인과 authorization-code 교환은 실행하지 못했다.
+- `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인 전용 CI는 실행하지
+  않았다.
 
 ## 알려진 잔여 위험
 
