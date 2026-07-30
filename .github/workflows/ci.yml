@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["*.*.*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Swift 6.2 minimum
+            developer-directory: /Applications/Xcode_26.0.app/Contents/Developer
+          - name: Current Xcode
+            developer-directory: /Applications/Xcode.app/Contents/Developer
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer-directory }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Format
+        run: swift format lint --strict --recursive Package.swift Sources Tests
+      - name: Architecture boundaries
+        run: python3 Scripts/verify-providerkit-boundaries.py
+      - name: Debug tests
+        run: swift test --parallel -Xswiftc -warnings-as-errors
+      - name: Release tests
+        run: swift test --parallel -c release -Xswiftc -warnings-as-errors

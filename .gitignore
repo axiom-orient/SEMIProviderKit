@@ -1,0 +1,44 @@
+# SwiftPM build state and local package configuration
+.build/
+.swiftpm/
+
+# Xcode user state and generated products
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.hmap
+*.dSYM
+*.dSYM.zip
+*.xcarchive
+*.xcresult
+*.ipa
+
+# Sanitizer, coverage, and profiling output
+*.profraw
+*.profdata
+*.xccovarchive
+*.xccovreport
+*.memgraph
+*.trace
+
+# macOS metadata
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Editor-local state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs, temporary files, and local environment overrides
+*.log
+*.tmp
+*.orig
+*.rej
+.env
+.env.*
+!.env.example
