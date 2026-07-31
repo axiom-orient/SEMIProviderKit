@@ -8,7 +8,7 @@ package enum ProviderCredentialContract {
     } catch {
       throw ProviderFailure(
         code: .credentialRecoveryRequired,
-        message: "credential vault returned an invalid record set"
+        message: "credential store returned an invalid record set"
       )
     }
   }
@@ -27,13 +27,13 @@ package enum ProviderCredentialContract {
     } catch {
       throw ProviderFailure(
         code: .credentialRecoveryRequired,
-        message: "credential vault returned an invalid lease"
+        message: "credential store returned an invalid lease"
       )
     }
     guard lease.record.accountID == expectedAccountID else {
       throw ProviderFailure(
         code: .credentialRecoveryRequired,
-        message: "credential vault returned a lease for a different account"
+        message: "credential store returned a lease for a different account"
       )
     }
     if let expectedProviderID, lease.record.providerID != expectedProviderID {

@@ -45,6 +45,40 @@ struct ProviderRuntimeTests {
         ]))
   }
 
+  @Test("Public in-memory credential store provides an ephemeral account lifecycle")
+  func inMemoryCredentialStoreLifecycle() async throws {
+    let store = InMemoryProviderCredentialStore()
+    let accountID = try ProviderAccountID("ephemeral-account")
+    let request = try ProviderAccountRegistrationRequest(
+      accountID: accountID,
+      providerID: BuiltInProviderID.openAI,
+      label: "Ephemeral OpenAI",
+      credential: .apiKey(try SensitiveValue("secret-key"))
+    )
+    let staged = try await store.stage(request, at: Date(timeIntervalSince1970: 1))
+    #expect(staged.state == .staged)
+    #expect(await store.record(accountID: accountID) == staged)
+
+    await expectThrownProviderFailure {
+      _ = try await store.stage(request, at: Date(timeIntervalSince1970: 2))
+    }
+
+    try await store.activate(staged, at: Date(timeIntervalSince1970: 2))
+    let lease = try await store.lease(accountID: accountID)
+    #expect(lease.record.state == .active)
+    #expect(lease.record.reference == staged.reference)
+    #expect(lease.material == request.credential)
+
+    // Registration compensation holds the staged snapshot, so removal must
+    // still succeed after activation when the identity is unchanged.
+    try await store.remove(staged)
+    #expect(await store.records().isEmpty)
+
+    let restaged = try await store.stage(request, at: Date(timeIntervalSince1970: 3))
+    #expect(restaged.reference != staged.reference)
+    try await store.remove(restaged)
+  }
+
   @Test("SSE decoder handles fragmentation, CRLF, multiline data, and finish")
   func sseDecoder() throws {
     var decoder = ServerSentEventDecoder(maximumLineBytes: 256, maximumEventBytes: 1_024)
@@ -610,13 +644,13 @@ struct ProviderRuntimeTests {
 
   @Test("OpenRouter OAuth validates callback state, exchanges PKCE code, and registers once")
   func openRouterOAuth() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"key":"oauth-key"}"#),
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -640,7 +674,7 @@ struct ProviderRuntimeTests {
       return
     }
     #expect(account.credentialSource == .oauthDerivedKey)
-    let lease = try await vault.lease(accountID: oauth.accountID)
+    let lease = try await store.lease(accountID: oauth.accountID)
     guard case .oauthDerivedKey(let key) = lease.material else {
       Issue.record("OAuth key did not retain its credential source")
       return
@@ -674,10 +708,10 @@ struct ProviderRuntimeTests {
 
   @Test("OpenRouter OAuth rejects callback mismatch before key exchange")
   func openRouterOAuthCallbackMismatch() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = ScriptedTransport(scripts: [])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -746,7 +780,7 @@ struct ProviderRuntimeTests {
     let removedAccount = try ProviderAccountID("staged-remove")
     let failedAccount = try ProviderAccountID("staged-fail")
     let active = try activeLease(accountID: activeAccount, providerID: BuiltInProviderID.openRouter)
-    let vault = try InMemoryCredentialVault(active: [active])
+    let store = try TestCredentialStore(active: [active])
     let removedRequest = try ProviderAccountRegistrationRequest(
       accountID: removedAccount,
       providerID: BuiltInProviderID.openRouter,
@@ -759,12 +793,12 @@ struct ProviderRuntimeTests {
       label: "Needs recovery",
       credential: .apiKey(SensitiveValue("staged-secret-2"))
     )
-    let removedRecord = try await vault.stage(removedRequest, at: Date(timeIntervalSince1970: 2))
-    let failedRecord = try await vault.stage(failedRequest, at: Date(timeIntervalSince1970: 3))
-    await vault.failRemoval(of: failedRecord.reference)
+    let removedRecord = try await store.stage(removedRequest, at: Date(timeIntervalSince1970: 2))
+    let failedRecord = try await store.stage(failedRequest, at: Date(timeIntervalSince1970: 3))
+    await store.failRemoval(of: failedRecord.reference)
 
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: ScriptedTransport(scripts: []),
       clock: SystemProviderClock()
     )
@@ -777,7 +811,7 @@ struct ProviderRuntimeTests {
     #expect(report.issues.first?.failure.code == .credentialRecoveryRequired)
     #expect(report.requiresRecovery)
 
-    let records = try await vault.records()
+    let records = try await store.records()
     #expect(records.contains(where: { $0.accountID == activeAccount && $0.state == .active }))
     #expect(!records.contains(where: { $0.accountID == removedAccount }))
     #expect(records.contains(where: { $0.accountID == failedAccount && $0.state == .staged }))
@@ -785,12 +819,12 @@ struct ProviderRuntimeTests {
 
   @Test("Account registration stages, verifies, activates, and exposes readiness")
   func accountRegistration() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -807,7 +841,7 @@ struct ProviderRuntimeTests {
       return
     }
     #expect(summary.accountID == request.accountID)
-    #expect((try await vault.lease(accountID: request.accountID)).record.state == .active)
+    #expect((try await store.lease(accountID: request.accountID)).record.state == .active)
     #expect(try await runtime.accounts().first?.readiness == .ready)
     await runtime.shutdown()
   }
@@ -815,14 +849,14 @@ struct ProviderRuntimeTests {
   @Test("Persisted active accounts require verification after runtime restart")
   func persistedAccountRequiresVerification() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -841,10 +875,10 @@ struct ProviderRuntimeTests {
 
   @Test("Cancelling account registration waits for compensation and transport cleanup")
   func cancelRegistrationJoinsCleanup() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -864,16 +898,16 @@ struct ProviderRuntimeTests {
     #expect(failure.code == .cancelled)
     #expect(await iterator.next() == nil)
     #expect(await transport.wasCancelled())
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
     await runtime.shutdown()
   }
 
   @Test("Immediate registration cancellation joins before returning")
   func immediateRegistrationCancellation() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -888,7 +922,7 @@ struct ProviderRuntimeTests {
       return
     }
     #expect(failure.code == .cancelled)
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
     await runtime.shutdown()
   }
 
@@ -896,12 +930,12 @@ struct ProviderRuntimeTests {
   func cancellationAfterNonCooperativeStage() async throws {
     let stageGate = AsyncGate()
     let cancellationObserved = AsyncGate()
-    let vault = InMemoryCredentialVault(
+    let store = TestCredentialStore(
       stageGate: stageGate,
       stageCancellationObserved: cancellationObserved
     )
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: ScriptedTransport(scripts: []),
       clock: SystemProviderClock()
     )
@@ -924,7 +958,7 @@ struct ProviderRuntimeTests {
     }
     #expect(failure.code == .cancelled)
     #expect(await iterator.next() == nil)
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
     #expect(try await runtime.accounts().isEmpty)
     await runtime.shutdown()
   }
@@ -933,7 +967,7 @@ struct ProviderRuntimeTests {
   func cancellationBeforeActivationCommit() async throws {
     let activationGate = AsyncGate()
     let cancellationObserved = AsyncGate()
-    let vault = InMemoryCredentialVault(
+    let store = TestCredentialStore(
       activationGate: activationGate,
       activationCancellationObserved: cancellationObserved
     )
@@ -941,7 +975,7 @@ struct ProviderRuntimeTests {
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -966,7 +1000,7 @@ struct ProviderRuntimeTests {
     }
     #expect(failure.code == .cancelled)
     #expect(await iterator.next() == nil)
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
     #expect(try await runtime.accounts().isEmpty)
     await runtime.shutdown()
   }
@@ -974,7 +1008,7 @@ struct ProviderRuntimeTests {
   @Test("Runtime performs direct streaming and publishes one terminal")
   func runtimeStreaming() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -990,7 +1024,7 @@ struct ProviderRuntimeTests {
       )
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1048,14 +1082,14 @@ struct ProviderRuntimeTests {
   @Test("HTTP failures become typed terminal failures instead of thrown streams")
   func runtimeHTTPFailure() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
       .json(status: 401, body: #"{"error":{"message":"bad api_key=secret-value"}}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1078,12 +1112,12 @@ struct ProviderRuntimeTests {
   @Test("Cancellation aborts transport and emits exactly one cancelled terminal")
   func cancellation() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1110,7 +1144,7 @@ struct ProviderRuntimeTests {
   @Test("Cancellation immediately after admission cannot be lost before session start")
   func immediateCancellationAfterAdmission() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -1124,7 +1158,7 @@ struct ProviderRuntimeTests {
       )
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1148,7 +1182,7 @@ struct ProviderRuntimeTests {
   @Test("Retry stays on the same route and occurs only before visible output")
   func retryBeforeVisibleOutput() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -1167,7 +1201,7 @@ struct ProviderRuntimeTests {
       ),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1197,7 +1231,7 @@ struct ProviderRuntimeTests {
   @Test("A successful HTTP response that fails before output retries without duplicate start")
   func retryAfterOpenedTransportFailsBeforeOutput() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -1217,7 +1251,7 @@ struct ProviderRuntimeTests {
       ),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1247,14 +1281,14 @@ struct ProviderRuntimeTests {
   @Test("Malformed provider JSON remains a malformedResponse failure")
   func malformedProviderJSONClassification() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
       .sse(status: 200, events: ["data: {not-json}\n\n"])
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1276,7 +1310,7 @@ struct ProviderRuntimeTests {
   @Test("Runtime mailbox overflow becomes an explicit terminal failure")
   func runtimeMailboxOverflow() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let toolCalls: [ProviderJSONValue] = (0..<70).map { index in
@@ -1309,7 +1343,7 @@ struct ProviderRuntimeTests {
       )
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1333,7 +1367,7 @@ struct ProviderRuntimeTests {
   @Test("Transport backpressure is a terminal failure and is never retried")
   func transportBackpressureIsTerminal() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     // The bounded body stream drops chunks the execution cannot keep up with.
@@ -1348,7 +1382,7 @@ struct ProviderRuntimeTests {
       .sse(status: 200, events: ["data: [DONE]\n\n"]),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1377,7 +1411,7 @@ struct ProviderRuntimeTests {
     // shutdown repeatedly so any regression in that split shows up here.
     for iteration in 0..<200 {
       let account = try ProviderAccountID("account-1")
-      let vault = try InMemoryCredentialVault(active: [
+      let store = try TestCredentialStore(active: [
         activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
       ])
       let transport = ScriptedTransport(scripts: [
@@ -1391,7 +1425,7 @@ struct ProviderRuntimeTests {
         )
       ])
       let runtime = ProviderRuntime(
-        credentialVault: vault,
+        credentialStore: store,
         transport: transport,
         clock: SystemProviderClock()
       )
@@ -1415,7 +1449,7 @@ struct ProviderRuntimeTests {
   @Test("Runtime never retries after a text delta is visible")
   func noRetryAfterVisibleOutput() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -1436,7 +1470,7 @@ struct ProviderRuntimeTests {
       ),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1467,7 +1501,7 @@ struct ProviderRuntimeTests {
   @Test("Authentication failures are never retried")
   func noRetryForAuthenticationFailure() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = ScriptedTransport(scripts: [
@@ -1475,7 +1509,7 @@ struct ProviderRuntimeTests {
       .json(status: 200, body: #"{"unexpected":true}"#),
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1500,7 +1534,7 @@ struct ProviderRuntimeTests {
   @Test("Completed request IDs are reusable as soon as terminal is observable")
   func requestSessionReleaseOrdering() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let completed: [ScriptedTransport.Script] = [
@@ -1523,7 +1557,7 @@ struct ProviderRuntimeTests {
     ]
     let transport = ScriptedTransport(scripts: completed)
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1555,12 +1589,12 @@ struct ProviderRuntimeTests {
 
   @Test("Completed account registration is released before its terminal event")
   func registrationSessionReleaseOrdering() async throws {
-    let vault = InMemoryCredentialVault()
+    let store = TestCredentialStore()
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1583,12 +1617,12 @@ struct ProviderRuntimeTests {
   @Test("Account revoke blocks new work, cancels active work, and removes credential")
   func revokeAccount() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1611,7 +1645,7 @@ struct ProviderRuntimeTests {
     }
     #expect(terminals == [.cancelled])
     #expect(await transport.wasCancelled())
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
 
     let rejected = await runtime.execute(request)
     var rejection: ProviderTerminal?
@@ -1626,19 +1660,70 @@ struct ProviderRuntimeTests {
     await runtime.shutdown()
   }
 
+  @Test("Account revoke cancels only executions selected by the account index")
+  func revokeUsesAccountExecutionIndex() async throws {
+    let openRouterAccount = try ProviderAccountID("openrouter-account")
+    let openAIAccount = try ProviderAccountID("openai-account")
+    let store = try TestCredentialStore(active: [
+      activeLease(
+        accountID: openRouterAccount,
+        providerID: BuiltInProviderID.openRouter
+      ),
+      activeLease(
+        accountID: openAIAccount,
+        providerID: BuiltInProviderID.openAI
+      ),
+    ])
+    let transport = AccountScopedHangingTransport()
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let openRouterRequest = try makeRequest(
+      providerID: BuiltInProviderID.openRouter,
+      accountID: openRouterAccount,
+      requestID: "openrouter-request"
+    )
+    let openAIRequest = try makeRequest(
+      providerID: BuiltInProviderID.openAI,
+      accountID: openAIAccount,
+      requestID: "openai-request"
+    )
+
+    var openRouter = await runtime.execute(openRouterRequest).makeAsyncIterator()
+    var openAI = await runtime.execute(openAIRequest).makeAsyncIterator()
+    guard case .started = await openRouter.next(),
+      case .started = await openAI.next()
+    else {
+      Issue.record("both account executions must start")
+      return
+    }
+
+    try await runtime.revoke(accountID: openRouterAccount)
+    #expect(await transport.wasCancelled(host: "openrouter.ai"))
+    #expect(!(await transport.wasCancelled(host: "api.openai.com")))
+    #expect(try await store.record(accountID: openRouterAccount) == nil)
+    #expect(try await store.record(accountID: openAIAccount) != nil)
+
+    await runtime.cancel(openAIRequest.id)
+    #expect(await transport.wasCancelled(host: "api.openai.com"))
+    await runtime.shutdown()
+  }
+
   @Test("Failed credential removal leaves the existing account usable")
   func revokeFailureRestoresAvailability() async throws {
     let account = try ProviderAccountID("account-1")
     let reference = try ProviderCredentialReference("ref-account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
-    await vault.failRemoval(of: reference)
+    await store.failRemoval(of: reference)
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -1652,19 +1737,19 @@ struct ProviderRuntimeTests {
 
     let inspection = try await runtime.inspect(accountID: account)
     #expect(inspection.readiness == .ready)
-    #expect(try await vault.records().count == 1)
+    #expect(try await store.records().count == 1)
     await runtime.shutdown()
   }
 
   @Test("Deadline expiry is a timedOut terminal, not a cancellation")
   func timeout() async throws {
     let account = try ProviderAccountID("account-1")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: FastDeadlineClock()
     )
@@ -2174,14 +2259,14 @@ struct ProviderRuntimeTests {
   @Test("Execution publishes terminal only after transport termination and uses the injected clock")
   func terminalWaitsForTransportTermination() async throws {
     let account = try ProviderAccountID("cleanup-account")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let gate = AsyncGate()
     let transport = DeferredTerminationTransport(gate: gate)
     let finishedAt = Date(timeIntervalSince1970: 1234)
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: FixedProviderClock(date: finishedAt)
     )
@@ -2211,12 +2296,12 @@ struct ProviderRuntimeTests {
 
   @Test("Registration rejects a no-op activation and compensates the staged credential")
   func activationReadBackIsRequired() async throws {
-    let vault = InMemoryCredentialVault(noOpActivation: true)
+    let store = TestCredentialStore(noOpActivation: true)
     let transport = ScriptedTransport(scripts: [
       .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
     ])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -2228,7 +2313,7 @@ struct ProviderRuntimeTests {
       return
     }
     #expect(failure.code == .credentialRecoveryRequired)
-    #expect(try await vault.records().isEmpty)
+    #expect(try await store.records().isEmpty)
     await runtime.shutdown()
   }
 
@@ -2250,10 +2335,10 @@ struct ProviderRuntimeTests {
       record: record,
       material: .oauthDerivedKey(try SensitiveValue("oauth-material"))
     )
-    let vault = try InMemoryCredentialVault(active: [lease])
+    let store = try TestCredentialStore(active: [lease])
     let transport = ScriptedTransport(scripts: [])
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -2276,12 +2361,12 @@ struct ProviderRuntimeTests {
   @Test("Concurrent shutdown callers join active work and post-shutdown admission fails closed")
   func shutdownIsAJoiningAdmissionFence() async throws {
     let account = try ProviderAccountID("shutdown-account")
-    let vault = try InMemoryCredentialVault(active: [
+    let store = try TestCredentialStore(active: [
       activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
     ])
     let transport = HangingTransport()
     let runtime = ProviderRuntime(
-      credentialVault: vault,
+      credentialStore: store,
       transport: transport,
       clock: SystemProviderClock()
     )
@@ -2569,7 +2654,7 @@ struct ProviderRuntimeTests {
   }
 }
 
-private actor InMemoryCredentialVault: ProviderCredentialVault {
+private actor TestCredentialStore: ProviderCredentialStore {
   private struct Stored: Sendable {
     var record: ProviderCredentialRecord
     let material: ProviderCredentialMaterial
@@ -2892,6 +2977,28 @@ private actor HangingTransport: ProviderHTTPTransport {
   }
 
   func wasCancelled() -> Bool { body.isCancelled() }
+}
+
+private actor AccountScopedHangingTransport: ProviderHTTPTransport {
+  private var bodies: [String: HangingBody] = [:]
+
+  func open(_ request: ProviderHTTPRequest) async throws -> ProviderHTTPResponse {
+    guard let host = request.urlRequest.url?.host else {
+      throw ProviderTransportError.invalidResponse
+    }
+    let body = HangingBody()
+    bodies[host] = body
+    return ProviderHTTPResponse(
+      statusCode: 200,
+      headers: ["content-type": "text/event-stream"],
+      body: body.stream,
+      cancel: { [body] in body.cancel() }
+    )
+  }
+
+  func wasCancelled(host: String) -> Bool {
+    bodies[host]?.isCancelled() ?? false
+  }
 }
 
 private actor AsyncGate {

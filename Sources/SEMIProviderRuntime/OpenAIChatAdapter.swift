@@ -301,7 +301,7 @@ package struct OpenAIChatAdapter: ProviderAdapter {
   }
 }
 
-private final class OpenAIChatStreamDecoder: ProviderStreamDecoder, @unchecked Sendable {
+private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
   private struct ToolState {
     var id: String?
     var name: String?

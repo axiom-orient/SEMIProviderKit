@@ -13,9 +13,9 @@
 | F-07 | account readiness inspect | ProviderKit | `verificationRequired → inspect → ready`, credential contract | restart/readiness, invalid/no-op/source mismatch tests | PASS |
 | F-08 | Soa external auth file | ProviderKit | `SecureRegularFileReader`, bounded async managed/installed Codex version resolver, Soa adapter | symlink·size·header injection·version fallback·wedged process tests, ASA live account/catalog/turn | PASS |
 | F-09 | OpenRouter direct 호출 | ProviderKit | direct HTTP/SSE adapter | request/privacy/OAuth fixtures | LIVE_REQUIRED |
-| F-10 | API key 계정 | ProviderKit + 호출자 저장 adapter | `ProviderCredentialVault` 주입; package는 secret 저장소를 제공하지 않음 | in-memory transaction tests | LIVE_REQUIRED |
+| F-10 | API key 계정 | ProviderKit + 선택적 호출자 저장 adapter | `InMemoryProviderCredentialStore` 또는 `ProviderCredentialStore` 주입 | public in-memory lifecycle + registration transaction tests | LIVE_REQUIRED |
 | F-11 | OAuth 계정 | ProviderKit + Apple | OpenRouter PKCE broker, loopback session | RFC PKCE, callback/replay tests | LIVE_REQUIRED |
-| F-12 | 복수 계정 격리 | ProviderKit | account ID keyed supervisor/vault/continuation | registration/revoke/continuation isolation tests | PASS |
+| F-12 | 복수 계정 격리 | ProviderKit | account ID keyed supervisor/store/continuation | registration/revoke/continuation isolation tests | PASS |
 | F-13 | model catalog·exact ID | ProviderKit | strict catalog parser, `ProviderModelID`, optional output-token limit | malformed/duplicate/limit catalog tests | LIVE_REQUIRED |
 | F-14 | stage별 route | SEMI | `ProviderSelection` 값만 제공 | boundary verifier | OUTSIDE |
 | F-15 | capability qualification | ProviderKit + SEMI | descriptor/catalog capability 상태 | strict decode tests | LIVE_REQUIRED |
@@ -39,14 +39,14 @@
 | F-33 | JSON 변환 축소 | ProviderKit | bounded `ProviderJSONValue` | deterministic round-trip tests | PASS |
 | F-34 | 요청별 immutable selection | ProviderKit | `ProviderTurnRequest.selection` | active request/retry tests | PASS |
 | F-35 | runtime shutdown/drain | ProviderKit; 제품 lifecycle은 SEMI | lifecycle admission fence, child join | concurrent shutdown tests | PASS |
-| F-36 | release provenance | 저장소 | Git commit, `0.1.0` tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + GitHub Actions | PASS |
+| F-36 | published release provenance | 저장소 | Git commit, `0.1.0` tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + GitHub Actions | PASS (`0.1.0`) |
 
 ## 구조적 불변식
 
 | 불변식 | 코드 경계 | 회귀 |
 | --- | --- | --- |
 | reducer는 부수 효과를 호출하지 않음 | Core account/execution reducer | reducer tests |
-| 공유 가변 상태만 actor 격리 | runtime/account/execution/replay 및 호출자 vault | Thread Sanitizer |
+| 공유 가변 상태만 actor 격리 | runtime/account/execution/replay/store; 실행별 decoder는 local | Thread Sanitizer |
 | 동기 URLSession callback은 lock, `yield`는 lock 밖 | `HTTPTransport` | cancel/failure/sanitizer tests |
 | terminal 이전 cleanup 및 종료 join | execution/account session은 `run` 종료까지 등록 유지, ID만 조기 해제 | cleanup ordering, immediate cancel, shutdown, interleaving tests |
 | credential commit 이전 read-back | account session/credential contract | no-op activation/source mismatch tests |
@@ -55,4 +55,4 @@
 | 공개 정책은 wire 반영 또는 명시적 거부 | output requirement·reasoning policy | native schema·reasoning policy tests |
 | tool choice는 wire 반영 또는 명시적 거부 | `ProviderToolChoice`와 adapter | named/required encoding, Gemini fail-closed test |
 | transport 종료 신호는 모든 경로에서 발화 | `HTTPTransport` 완료·무효화 delegate | cancel/invalidation/termination-order tests |
-| 성장 입력에 대한 O(n²) scan 없음 | SSE/header cursor, direct account lookup, bounded amortized mailbox compaction | fragmented scan·account identity tests |
+| 성장 입력에 대한 O(n²) scan 없음 | SSE/header cursor, account→execution 역색인, bounded amortized mailbox compaction | fragmented scan·revoke isolation tests |

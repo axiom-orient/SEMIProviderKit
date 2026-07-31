@@ -268,7 +268,11 @@ public struct ProviderCredentialReconciliationReport: Codable, Equatable, Sendab
   public var requiresRecovery: Bool { !issues.isEmpty }
 }
 
-public protocol ProviderCredentialVault: Sendable {
+/// Storage boundary for provider credentials and their registration state.
+///
+/// Conforming types choose the durability and protection policy. The protocol
+/// itself does not imply encryption or persistence.
+public protocol ProviderCredentialStore: Sendable {
   func stage(
     _ request: ProviderAccountRegistrationRequest,
     at date: Date

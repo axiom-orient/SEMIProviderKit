@@ -4,7 +4,7 @@
 
 | 진입점 | 입력 | 소유자 |
 | --- | --- | --- |
-| `ProviderRuntime.init` | `ProviderCredentialVault`, 선택적 `ProviderClock` | 호출자 |
+| `ProviderRuntime.init` | `ProviderCredentialStore`, 선택적 `ProviderClock` | package 또는 호출자 |
 | `register` | `ProviderAccountRegistrationRequest` | 호출자 |
 | `registerOpenRouterOAuth` | OAuth registration request와 `ProviderAuthorizationSession` | 호출자 + Apple adapter |
 | `inspect`, `models`, `revoke` | `ProviderAccountID` | 호출자 |
@@ -17,10 +17,11 @@ reasoning, continuation과 timeout·byte·retry·privacy constraint를 담는다
 `Codable` 왕복은 이 필드를 모두 보존한다. 정책이 직렬화에서 사라지면 `.required` tool
 choice가 `.automatic`으로 조용히 낮아지므로, 왕복 보존은 회귀 테스트로 고정한다.
 
-Credential은 Runtime 생성 시 주입한 `ProviderCredentialVault`를 통해서만 읽는다.
-API key와 OAuth-derived key의 실제 secret 저장은 호출자 책임이다. Soa
-`auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을 복사하지
-않고 vault가 보존한 검증된 파일 참조를 읽는다.
+Credential은 Runtime 생성 시 주입한 `ProviderCredentialStore`를 통해서만 읽는다.
+`InMemoryProviderCredentialStore`를 쓰면 API key와 OAuth-derived key는 process
+lifetime에만 존재한다. durable 보존이 필요하면 실제 secret 저장은 호출자 책임이다.
+Soa `auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을
+복사하지 않고 store가 보존한 검증된 파일 참조를 읽는다.
 
 ## Outputs
 
@@ -50,7 +51,7 @@ ProviderKit은 실행 중 파일, 대화 기록, UI state, tool receipt, 문서 
 | release archive와 checksum | 배포 artifact | tagged commit에서 생성하고 checksum은 archive 밖에 게시 |
 | `Package.resolved` | 선택적 dependency resolution 기록 | 생성되면 검토·추적; build cache로 취급하지 않음 |
 | `.build/`, `.swiftpm/`, DerivedData | 재생성 가능한 build output | 저장소에 보존하지 않음 |
-| credential secret | 외부 runtime input | 호출자 vault가 보관; 문서·로그·artifact에 기록 금지 |
+| credential secret | 외부 runtime input | in-memory 또는 호출자 store가 보관; 문서·로그·artifact에 기록 금지 |
 | Soa `auth.json` | caller-managed external input | 경로만 참조; 복사·수정하지 않음 |
 | model event stream | ephemeral output | 호출자가 소비·저장·UI 투영 |
 | `Docs/COMPLETION_REPORT.md` | 검증 기록 | 실제 명령 결과만 기록 |
@@ -59,9 +60,9 @@ Git tree가 파일 집합과 내용을 함께 식별한다. release archive는 c
 아니라 tagged commit에서 생성한다. archive checksum이나 서명은 archive 내부가 아닌
 release metadata로 게시해 artifact와 독립된 검증 근거를 제공한다.
 
-## Credential vault contract
+## Credential store contract
 
-호출자 vault는 다음을 보장해야 한다.
+모든 store는 다음을 보장해야 한다.
 
 - `stage`는 새 immutable record identity를 만들고 아직 active lease로 노출하지 않는다.
 - `activate` 뒤 `record(accountID:)`가 같은 reference, account, provider, source를 반환한다.
@@ -69,8 +70,10 @@ release metadata로 게시해 artifact와 독립된 검증 근거를 제공한�
 - `remove`는 정확한 record를 삭제하고 다른 계정의 credential을 건드리지 않는다.
 - `records`는 reconciliation 가능한 staged/active record 전체를 반환한다.
 
-ProviderKit은 concrete Keychain adapter, 평문 파일 vault, `UserDefaults` vault,
-저장소 migration이나 legacy raw-value decoder를 제공하지 않는다.
+Package의 `InMemoryProviderCredentialStore`는 actor로 격리된 위 계약의 ephemeral
+구현이다. 파일 I/O, 암호화, 권한 요청이 없고 store 또는 process 수명이 끝나면 내용이
+사라진다. durable persistence가 필요하면 호출자가 같은 protocol을 구현하고 저장
+기술과 보안 속성을 별도로 검증한다.
 
 ## Lifecycle
 

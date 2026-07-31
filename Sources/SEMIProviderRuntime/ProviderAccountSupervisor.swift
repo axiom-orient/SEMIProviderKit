@@ -3,7 +3,7 @@ import SEMIProviderCore
 
 package actor ProviderAccountSupervisor {
   private let registry: BuiltInProviderRegistry
-  private let vault: any ProviderCredentialVault
+  private let store: any ProviderCredentialStore
   private let transport: any ProviderHTTPTransport
   private let clock: any ProviderClock
   /// Sessions stay registered until `run()` returns so every join point sees
@@ -16,12 +16,12 @@ package actor ProviderAccountSupervisor {
 
   package init(
     registry: BuiltInProviderRegistry,
-    vault: any ProviderCredentialVault,
+    store: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) {
     self.registry = registry
-    self.vault = vault
+    self.store = store
     self.transport = transport
     self.clock = clock
   }
@@ -37,7 +37,7 @@ package actor ProviderAccountSupervisor {
       )
     }
 
-    let records = try await vault.records()
+    let records = try await store.records()
     try ProviderCredentialContract.validate(records: records)
     var activeRecordCount = 0
     var removed: [ProviderCredentialReference] = []
@@ -49,7 +49,7 @@ package actor ProviderAccountSupervisor {
         activeRecordCount += 1
       case .staged:
         do {
-          try await vault.remove(record)
+          try await store.remove(record)
           removed.append(record.reference)
           inspections.removeValue(forKey: record.accountID)
         } catch {
@@ -75,7 +75,7 @@ package actor ProviderAccountSupervisor {
   }
 
   package func accounts() async throws -> [ProviderAccountSummary] {
-    let records = try await vault.records()
+    let records = try await store.records()
     try ProviderCredentialContract.validate(records: records)
     return records.map { record in
       let readiness: ProviderAccountReadiness =
@@ -130,7 +130,7 @@ package actor ProviderAccountSupervisor {
       registrationID: registrationID,
       request: request,
       registry: registry,
-      vault: vault,
+      store: store,
       transport: transport,
       clock: clock,
       sink: sink,
@@ -163,11 +163,11 @@ package actor ProviderAccountSupervisor {
       await session.cancel()
       await session.waitUntilFinished()
     }
-    guard let record = try await vault.record(accountID: accountID) else {
+    guard let record = try await store.record(accountID: accountID) else {
       inspections.removeValue(forKey: accountID)
       return
     }
-    try await vault.remove(record)
+    try await store.remove(record)
     inspections.removeValue(forKey: accountID)
   }
 
@@ -176,7 +176,7 @@ package actor ProviderAccountSupervisor {
       throw ProviderFailure(code: .cancelled, message: "provider runtime is shutting down")
     }
     let lease = try ProviderCredentialContract.validate(
-      lease: try await vault.lease(accountID: accountID),
+      lease: try await store.lease(accountID: accountID),
       expectedAccountID: accountID
     )
     let adapter = try registry.adapter(for: lease.record.providerID)
@@ -194,7 +194,7 @@ package actor ProviderAccountSupervisor {
       throw ProviderFailure(code: .cancelled, message: "provider runtime is shutting down")
     }
     let lease = try ProviderCredentialContract.validate(
-      lease: try await vault.lease(accountID: accountID),
+      lease: try await store.lease(accountID: accountID),
       expectedAccountID: accountID
     )
     let adapter = try registry.adapter(for: lease.record.providerID)
@@ -247,7 +247,7 @@ package actor ProviderAccountRegistrationSession {
   private let registrationID: UUID
   private let request: ProviderAccountRegistrationRequest
   private let registry: BuiltInProviderRegistry
-  private let vault: any ProviderCredentialVault
+  private let store: any ProviderCredentialStore
   private let transport: any ProviderHTTPTransport
   private let clock: any ProviderClock
   private let sink: ProviderAccountEventSink
@@ -266,7 +266,7 @@ package actor ProviderAccountRegistrationSession {
     registrationID: UUID,
     request: ProviderAccountRegistrationRequest,
     registry: BuiltInProviderRegistry,
-    vault: any ProviderCredentialVault,
+    store: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock,
     sink: ProviderAccountEventSink,
@@ -277,7 +277,7 @@ package actor ProviderAccountRegistrationSession {
     self.registrationID = registrationID
     self.request = request
     self.registry = registry
-    self.vault = vault
+    self.store = store
     self.transport = transport
     self.clock = clock
     self.sink = sink
@@ -342,7 +342,7 @@ package actor ProviderAccountRegistrationSession {
         guard generation == state.generation else { continue }
         try checkCancellation()
         do {
-          let record = try await vault.stage(request, at: await clock.now())
+          let record = try await store.stage(request, at: await clock.now())
           try await apply(.credentialStaged(record))
         } catch {
           try await apply(.operationFailed(ProviderWireError.failure(error)))
@@ -373,11 +373,11 @@ package actor ProviderAccountRegistrationSession {
         guard generation == state.generation else { continue }
         try checkCancellation()
         do {
-          try await vault.activate(record, at: await clock.now())
+          try await store.activate(record, at: await clock.now())
           try checkCancellation()
           let activatedLease: ProviderCredentialLease
           do {
-            activatedLease = try await vault.lease(accountID: record.accountID)
+            activatedLease = try await store.lease(accountID: record.accountID)
           } catch {
             throw ProviderFailure(
               code: .credentialRecoveryRequired,
@@ -409,8 +409,8 @@ package actor ProviderAccountRegistrationSession {
         guard generation == state.generation else { continue }
         // Compensation is a recovery effect. It must run to completion even when
         // the registration task itself was cancelled.
-        let cleanup = Task { [vault] in
-          try await vault.remove(record)
+        let cleanup = Task { [store] in
+          try await store.remove(record)
         }
         do {
           try await cleanup.value

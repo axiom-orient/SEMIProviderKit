@@ -23,7 +23,7 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 // Package.swift
 .package(
   url: "https://github.com/axiom-orient/SEMIProviderKit.git",
-  from: "0.1.0"
+  from: "0.2.0"
 )
 ```
 
@@ -31,7 +31,13 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 import SEMIProviderCore
 import SEMIProviderRuntime
 
-let runtime = ProviderRuntime(credentialVault: appCredentialVault)
+let credentialStore = InMemoryProviderCredentialStore()
+let runtime = ProviderRuntime(credentialStore: credentialStore)
+
+for await event in await runtime.register(registrationRequest) {
+  // staging, verifying, activating, ready or failure
+}
+
 let stream = await runtime.execute(turnRequest)
 
 for await event in stream {
@@ -39,19 +45,26 @@ for await event in stream {
 }
 ```
 
-호출자는 `ProviderCredentialVault`를 구현하고 수명 주기 종료 시
-`await runtime.shutdown()`을 호출한다. package는 Keychain이나 평문 secret 저장소를
-제공하지 않는다.
+`InMemoryProviderCredentialStore`는 영구 저장·권한 요청 없이 process lifetime 동안만
+credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하면
+`ProviderCredentialStore`를 구현해 주입한다. 어느 방식을 쓰든 수명 주기 종료 시
+`await runtime.shutdown()`을 호출한다.
+
+현재 `main`은 `0.2.0` 후보이다. `0.2.0` tag가 게시되기 전에는 local package dependency로
+검증하고, 배포 앱은 이미 게시된 tag만 사용한다.
 
 ## Repository
 
 | 경로 | 내용 |
 | --- | --- |
 | [`Docs/`](Docs/README.md) | 설계, 인터페이스 계약, 기능 추적, 완료 근거 |
-| `Sources/` | 세 product의 canonical source |
-| `Tests/` | Core·Runtime·Apple 회귀 테스트 |
-| `Scripts/` | product·target·import 경계 검증 |
-| `Package.swift` | 유일한 build manifest |
+| [`Sources/`](Sources/) | 세 product의 canonical source |
+| [`Tests/`](Tests/) | Core·Runtime·Apple 회귀 테스트 |
+| [`Scripts/`](Scripts/) | product·target·import 경계 검증 |
+| [`Package.swift`](Package.swift) | 유일한 build manifest |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | macOS 26 format·경계·test CI |
+| [`.gitignore`](.gitignore) | 재생성·로컬 전용 파일 제외 규칙 |
+| [`LICENSE`](LICENSE) | MIT 라이선스 |
 
 ## Verification
 

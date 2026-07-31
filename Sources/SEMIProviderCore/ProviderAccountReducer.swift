@@ -102,7 +102,7 @@ public enum ProviderAccountReducer {
       } catch {
         let failure = ProviderFailure(
           code: .internalInvariant,
-          message: "credential vault returned an inconsistent staged record"
+          message: "credential store returned an inconsistent staged record"
         )
         return (
           .init(

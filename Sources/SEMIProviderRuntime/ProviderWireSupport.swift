@@ -102,7 +102,7 @@ package enum ProviderDecodedEvent: Equatable, Sendable {
   case completed(ProviderCompletionDraft)
 }
 
-package protocol ProviderStreamDecoder: AnyObject, Sendable {
+package protocol ProviderStreamDecoder: AnyObject {
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent]
   func finish() throws -> [ProviderDecodedEvent]
 }

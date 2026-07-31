@@ -317,7 +317,7 @@ private enum SoaCredentialResolver {
 
 }
 
-private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder, @unchecked Sendable {
+private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
   private struct ToolState {
     var callID: String?
     var name: String?

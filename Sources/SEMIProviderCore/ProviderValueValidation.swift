@@ -41,13 +41,13 @@ package enum ProviderValueValidation {
       guard accounts.insert(record.accountID).inserted else {
         throw ProviderCoreError(
           code: .invalidValue,
-          message: "credential vault contains duplicate account records"
+          message: "credential store contains duplicate account records"
         )
       }
       guard references.insert(record.reference).inserted else {
         throw ProviderCoreError(
           code: .invalidValue,
-          message: "credential vault contains duplicate references"
+          message: "credential store contains duplicate references"
         )
       }
     }

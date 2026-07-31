@@ -268,7 +268,7 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
   }
 }
 
-private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder, @unchecked Sendable {
+private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
   private enum BlockKind {
     case text
     case tool

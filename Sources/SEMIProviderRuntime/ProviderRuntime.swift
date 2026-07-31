@@ -20,20 +20,20 @@ public actor ProviderRuntime {
   private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
   public init(
-    credentialVault: any ProviderCredentialVault,
+    credentialStore: any ProviderCredentialStore,
     clock: any ProviderClock = SystemProviderClock()
   ) {
     let registry = BuiltInProviderRegistry()
     let transport = URLSessionProviderHTTPTransport()
     self.accountSupervisor = ProviderAccountSupervisor(
       registry: registry,
-      vault: credentialVault,
+      store: credentialStore,
       transport: transport,
       clock: clock
     )
     self.executionSupervisor = ProviderExecutionSupervisor(
       registry: registry,
-      vault: credentialVault,
+      store: credentialStore,
       transport: transport,
       clock: clock
     )
@@ -41,20 +41,20 @@ public actor ProviderRuntime {
   }
 
   package init(
-    credentialVault: any ProviderCredentialVault,
+    credentialStore: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) {
     let registry = BuiltInProviderRegistry()
     self.accountSupervisor = ProviderAccountSupervisor(
       registry: registry,
-      vault: credentialVault,
+      store: credentialStore,
       transport: transport,
       clock: clock
     )
     self.executionSupervisor = ProviderExecutionSupervisor(
       registry: registry,
-      vault: credentialVault,
+      store: credentialStore,
       transport: transport,
       clock: clock
     )

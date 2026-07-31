@@ -3,11 +3,10 @@ import SEMIProviderCore
 
 package actor ProviderExecutionSupervisor {
   private let registry: BuiltInProviderRegistry
-  private let vault: any ProviderCredentialVault
+  private let store: any ProviderCredentialStore
   private let transport: any ProviderHTTPTransport
   private let clock: any ProviderClock
   private struct ActiveExecution: Sendable {
-    let executionID: UUID
     let accountID: ProviderAccountID
     let session: ProviderExecutionSession
   }
@@ -18,16 +17,17 @@ package actor ProviderExecutionSupervisor {
   /// terminal is observable.
   private var sessions: [UUID: ActiveExecution] = [:]
   private var requestIndex: [ProviderRequestID: UUID] = [:]
+  private var accountIndex: [ProviderAccountID: Set<UUID>] = [:]
   private var shuttingDown = false
 
   package init(
     registry: BuiltInProviderRegistry,
-    vault: any ProviderCredentialVault,
+    store: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) {
     self.registry = registry
-    self.vault = vault
+    self.store = store
     self.transport = transport
     self.clock = clock
   }
@@ -68,7 +68,7 @@ package actor ProviderExecutionSupervisor {
       executionID: executionID,
       request: request,
       registry: registry,
-      vault: vault,
+      store: store,
       transport: transport,
       clock: clock,
       sink: sink,
@@ -80,11 +80,11 @@ package actor ProviderExecutionSupervisor {
       }
     )
     sessions[executionID] = ActiveExecution(
-      executionID: executionID,
       accountID: request.selection.accountID,
       session: session
     )
     requestIndex[request.id] = executionID
+    accountIndex[request.selection.accountID, default: []].insert(executionID)
     await session.start()
     return stream
   }
@@ -98,7 +98,7 @@ package actor ProviderExecutionSupervisor {
   }
 
   package func cancelAndJoin(accountID: ProviderAccountID) async {
-    let matching = sessions.values.filter { $0.accountID == accountID }.map(\.session)
+    let matching = (accountIndex[accountID] ?? []).compactMap { sessions[$0]?.session }
     for session in matching { await session.cancel() }
     for session in matching { await session.waitUntilFinished() }
   }
@@ -111,6 +111,7 @@ package actor ProviderExecutionSupervisor {
     for session in active { await session.waitUntilFinished() }
     sessions.removeAll(keepingCapacity: false)
     requestIndex.removeAll(keepingCapacity: false)
+    accountIndex.removeAll(keepingCapacity: false)
   }
 
   /// Frees the request ID for reuse while the session itself stays joinable.
@@ -123,7 +124,11 @@ package actor ProviderExecutionSupervisor {
   }
 
   private func removeSession(executionID: UUID) {
-    sessions.removeValue(forKey: executionID)
+    guard let active = sessions.removeValue(forKey: executionID) else { return }
+    accountIndex[active.accountID]?.remove(executionID)
+    if accountIndex[active.accountID]?.isEmpty == true {
+      accountIndex.removeValue(forKey: active.accountID)
+    }
   }
 }
 
@@ -131,7 +136,7 @@ package actor ProviderExecutionSession {
   private let executionID: UUID
   private let request: ProviderTurnRequest
   private let registry: BuiltInProviderRegistry
-  private let vault: any ProviderCredentialVault
+  private let store: any ProviderCredentialStore
   private let transport: any ProviderHTTPTransport
   private let clock: any ProviderClock
   private let sink: ProviderEventSink
@@ -151,7 +156,7 @@ package actor ProviderExecutionSession {
     executionID: UUID,
     request: ProviderTurnRequest,
     registry: BuiltInProviderRegistry,
-    vault: any ProviderCredentialVault,
+    store: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock,
     sink: ProviderEventSink,
@@ -161,7 +166,7 @@ package actor ProviderExecutionSession {
     self.executionID = executionID
     self.request = request
     self.registry = registry
-    self.vault = vault
+    self.store = store
     self.transport = transport
     self.clock = clock
     self.sink = sink
@@ -286,7 +291,7 @@ package actor ProviderExecutionSession {
 
   private func openAndConsume() async throws -> ProviderCompletion {
     let lease = try ProviderCredentialContract.validate(
-      lease: try await vault.lease(accountID: request.selection.accountID),
+      lease: try await store.lease(accountID: request.selection.accountID),
       expectedAccountID: request.selection.accountID,
       expectedProviderID: request.selection.providerID
     )

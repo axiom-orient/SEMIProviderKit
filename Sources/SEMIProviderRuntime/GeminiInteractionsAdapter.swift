@@ -285,7 +285,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
   }
 }
 
-private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder, @unchecked Sendable {
+private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
   private struct ToolState {
     let id: String
     let name: String

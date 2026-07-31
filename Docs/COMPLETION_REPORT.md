@@ -4,8 +4,9 @@
 
 macOS 26 전용 Provider 실행 package의 account lifecycle, direct model turn,
 streaming, retry·cancel·shutdown, credential recovery와 OAuth 경계는 구현·검증됐다.
-초기 공개 버전은 `0.1.0`이며 GitHub Actions와 로컬 clean extraction을 모두 통과한
-tagged commit만 release로 게시한다.
+공개된 버전은 `0.1.0`이고 현재 source는 credential API를 명확히 한 `0.2.0`
+후보다. 현재 후보도 로컬 clean extraction을 통과해야 하며, GitHub Actions를 통과한
+tagged commit만 새 release로 게시한다.
 
 ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, durable run
 저장은 의도적으로 포함하지 않는다. 입력·출력·산출물 소유권은
@@ -15,8 +16,10 @@ ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, 
 
 - canonical source: `https://github.com/axiom-orient/SEMIProviderKit`
 - Git branch: `main`
-- commit: release tag가 가리키는 Git commit
-- release tag: `0.1.0`
+- published commit: `17529125600f7156b3fda16497354562b2296887`
+- published release tag: `0.1.0`
+- candidate identity: 이 보고서를 포함하는 최종 Git commit
+- candidate release: `0.2.0` (미게시)
 - release 원칙: clean working tree의 검증된 commit만 tag하고 해당 commit에서 archive 생성
 
 Git tag와 GitHub Release가 고정된 source identity를 제공한다. 이전의 수동 source
@@ -26,10 +29,14 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 
 - 루트 문서를 짧은 진입점으로 갱신하고 architecture, interface contract, functional
   matrix, completion evidence를 `Docs/`로 모았다.
-- 입력은 immutable request와 caller-owned vault, 출력은 bounded single-consumer event
+- 입력은 immutable request와 caller-owned store, 출력은 bounded single-consumer event
   stream, 저장 artifact는 caller-owned라는 계약을 명시했다.
-- concrete Keychain/평문 vault와 migration·legacy raw-value decoder를 제공하지 않는
-  현재 저장 경계를 문서와 코드에 일치시켰다.
+- 저장 기술을 뜻하는 `ProviderCredentialStore` 경계와 권한·영구 저장 없이 바로 쓸 수
+  있는 actor 기반 `InMemoryProviderCredentialStore`를 제공한다.
+- account revoke가 모든 execution을 scan하지 않도록 account→execution 역색인을
+  추가했고, 다른 계정의 실행을 건드리지 않는 회귀를 고정했다.
+- execution actor 안에서만 쓰는 mutable stream decoder의 허위 `Sendable` 계약과
+  `@unchecked Sendable`을 제거했다.
 - macOS 26 밖의 FoundationNetworking, Glibc, portable SHA-256, AppKit/Network 부재용
   fallback과 해당 조건부 테스트를 제거했다. Security 사용은 PKCE CSPRNG로 제한된다.
 - 성장 입력의 O(n²) scan을 허용하지 않는 cursor, direct lookup, amortized mailbox
@@ -43,22 +50,23 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 
 ## 실행한 검증과 실제 결과
 
-- warnings-as-errors debug build/test: 87/87 통과
-- warnings-as-errors release build/test: 87/87 통과
-- GitHub Actions: macOS 26 runner의 현재 Xcode에서 format, architecture boundary,
-  warnings-as-errors debug·release test 검증
-- Thread Sanitizer: 87/87 통과, race 보고 없음
-- Address Sanitizer: 87/87 통과
+- warnings-as-errors debug build/test: 89/89 통과
+- warnings-as-errors release build/test: 89/89 통과
+- Thread Sanitizer: 89/89 통과, race 보고 없음
+- Address Sanitizer: 89/89 통과
 - `swift-format lint -r -s Sources Tests Package.swift`: 위반 없음
 - product·target·import·source boundary verifier: 통과
-- Markdown local link 검증: 통과
-- ASA consumer external-scratch gate: XCTest 100/100 + Swift Testing 2/2 통과
+- 독립 SwiftPM release consumer: public `ProviderCredentialStore`,
+  `InMemoryProviderCredentialStore`, `ProviderRuntime` compile·run 통과
+- GitHub Actions는 공개 `0.1.0` commit에서 통과했다. `0.2.0` 후보는 push 전이므로
+  원격 CI 결과가 아직 없다.
 
 ## Clean extraction 검증
 
-Git이 추적할 source만 새 임시 디렉터리로 추출하고 별도 scratch에서 architecture
-boundary와 warnings-as-errors debug·release test 87/87을 통과했다. GitHub가 release
-tag에서 생성하는 source archive는 게시 후 다시 확인한다.
+최종 후보 source만 새 임시 디렉터리로 복사하고 기존 `.build`와 작업 디렉터리 밖의
+별도 scratch에서 architecture boundary와 warnings-as-errors debug·release test
+89/89을 통과했다. Git commit 뒤에는 같은 commit의 `git archive`로 다시 확인하고,
+GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한다.
 
 ## 플랫폼 제약으로 실행하지 못한 항목
 
@@ -67,17 +75,25 @@ tag에서 생성하는 source archive는 게시 후 다시 확인한다.
 - 실제 OpenRouter browser 승인과 authorization-code 교환은 실행하지 못했다.
 - `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인 전용 CI는 실행하지
   않았다.
+- 현재 source의 원격 GitHub Actions와 `0.2.0` source archive는 아직 존재하지 않는다.
+- sibling ASA source는 공개 이름 변경 전 API를 사용하므로 이번 저장소 범위에서는
+  current candidate와 다시 build하지 못했다.
 
 ## 알려진 잔여 위험
 
 - Soa private endpoint와 local auth schema는 안정된 공개 API가 아니다.
 - API-key Provider의 모델별 tools, structured output, reasoning 허용 범위는 live
   qualification 전에는 fixture와 Provider 문서 수준이다.
-- caller가 주입하는 `ProviderCredentialVault`의 내구성·보안은 package 밖의 책임이며
-  실제 제품 vault는 동일 contract로 별도 검증해야 한다.
+- caller가 주입하는 `ProviderCredentialStore`의 내구성·보안은 package 밖의 책임이며
+  실제 제품 store는 동일 contract로 별도 검증해야 한다.
+- `InMemoryProviderCredentialStore`는 의도적으로 process 종료 시 credential을
+  잃는다.
+- credential boundary의 공개 이름이 변경됐으므로 기존 `0.1.0` consumer는 `0.2.0`
+  채택 시 source update가 필요하다. 호환 wrapper는 두지 않는다.
 - transport backpressure는 무한 buffering 대신 명시적 terminal failure를 선택한다.
 - 관리된 `version.json`이 없고 embedded Codex가 응답하지 않으면 최초 turn의 terminal
   공개가 최대 5초 늦어질 수 있다.
 
-현재 접근 가능한 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아 있지
-않다. 계정이 필요한 live qualification 제약은 공개 release note에도 명시한다.
+현재 접근 가능한 로컬 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아
+있지 않다. 다만 ASA를 포함한 기존 consumer update, 원격 CI와 live qualification이
+끝나기 전에는 `0.2.0`을 final release로 표시하지 않는다.
