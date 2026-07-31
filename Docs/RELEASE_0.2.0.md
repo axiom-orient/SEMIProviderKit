@@ -2,9 +2,10 @@
 
 ## Status
 
-`0.2.0`은 아직 게시하지 않았다. 현재 로컬 릴리스 판정은 `GO`다. 최종 commit의 clean
-archive가 macOS 26 로컬 검증을 통과하면 그 commit을 그대로 push, tag, GitHub
-Release 게시할 수 있다. GitHub Actions와 GitHub CI는 사용하지 않는다.
+`0.2.0`은 2026-07-31에 게시됐다. annotated tag `0.2.0`은
+`d5320ee964a7ca164048deacda7107da115ec848`을 가리키며, GitHub Release의 source
+archive와 SHA-256 asset을 다시 내려받아 검증했다. GitHub Actions와 GitHub CI는
+사용하지 않았다.
 
 기준 release는 `0.1.0`
 (`17529125600f7156b3fda16497354562b2296887`)이다. `0.2.0`은 credential 공개 계약을
@@ -46,17 +47,17 @@ Release 게시할 수 있다. GitHub Actions와 GitHub CI는 사용하지 않는
 
 ## Publish gates
 
-- [ ] final candidate working tree가 clean하다.
-- [ ] `swift format lint --strict --recursive Package.swift Sources Tests`가 통과한다.
-- [ ] `python3 Scripts/verify-providerkit-boundaries.py`가 통과한다.
-- [ ] warnings-as-errors debug/release tests가 통과한다.
-- [ ] `0.1.0` 기준 SwiftPM API 진단 결과가 release notes의 breaking change와
+- [x] final candidate working tree가 clean하다.
+- [x] `swift format lint --strict --recursive Package.swift Sources Tests`가 통과한다.
+- [x] `python3 Scripts/verify-providerkit-boundaries.py`가 통과한다.
+- [x] warnings-as-errors debug/release tests가 통과한다.
+- [x] `0.1.0` 기준 SwiftPM API 진단 결과가 release notes의 breaking change와
       일치한다.
-- [ ] final commit의 clean `git archive`를 새 디렉터리에서 검증한다.
-- [ ] final commit을 `origin/main`에 push한다.
-- [ ] `0.2.0` annotated tag가 그 exact commit을 가리킨다.
-- [ ] tag source archive가 로컬에서 검증한 commit과 동일한 tree인지 확인한다.
-- [ ] [사용자용 release notes](RELEASE_NOTES_0.2.0.md)가 최종 API와 잔여 위험을
+- [x] final commit의 clean `git archive`를 새 디렉터리에서 검증한다.
+- [x] final commit을 `origin/main`에 push한다.
+- [x] `0.2.0` annotated tag가 그 exact commit을 가리킨다.
+- [x] tag source archive가 로컬에서 검증한 commit과 동일한 tree인지 확인한다.
+- [x] [사용자용 release notes](RELEASE_NOTES_0.2.0.md)가 최종 API와 잔여 위험을
       정확히 설명한다.
 
 ## Publish sequence

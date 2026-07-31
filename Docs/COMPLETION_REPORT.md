@@ -4,9 +4,8 @@
 
 macOS 26 전용 Provider 실행 package의 account lifecycle, direct model turn,
 streaming, retry·cancel·shutdown, credential recovery와 OAuth 경계는 구현·검증됐다.
-공개된 버전은 `0.1.0`이고 현재 source는 credential API를 명확히 한 `0.2.0`
-후보다. GitHub Actions와 GitHub CI는 사용하지 않는다. 로컬 clean extraction을
-통과한 exact commit만 새 release로 게시한다.
+공개된 버전은 `0.2.0`이다. GitHub Actions와 GitHub CI는 사용하지 않는다. 로컬 clean
+extraction을 통과한 exact commit만 새 release로 게시한다.
 
 ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, durable run
 저장은 의도적으로 포함하지 않는다. 입력·출력·산출물 소유권은
@@ -16,10 +15,10 @@ ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, 
 
 - canonical source: `https://github.com/axiom-orient/SEMIProviderKit`
 - Git branch: `main`
-- published commit: `17529125600f7156b3fda16497354562b2296887`
-- published release tag: `0.1.0`
-- candidate identity: 이 보고서를 포함하는 최종 Git commit
-- candidate release: `0.2.0` (미게시)
+- published commit: `d5320ee964a7ca164048deacda7107da115ec848`
+- published release tag: `0.2.0`
+- previous release tag: `0.1.0` (`17529125600f7156b3fda16497354562b2296887`)
+- GitHub Release: `0.2.0` (2026-07-31 published)
 - release 원칙: clean working tree의 검증된 commit만 tag하고 해당 commit에서 archive 생성
 
 Git tag와 GitHub Release가 고정된 source identity를 제공한다. 이전의 수동 source
@@ -74,10 +73,10 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 
 ## Clean extraction 검증
 
-최종 후보 source만 새 임시 디렉터리로 복사하고 기존 `.build`와 작업 디렉터리 밖의
-별도 scratch에서 architecture boundary와 warnings-as-errors debug·release test
-89/89을 통과했다. Git commit 뒤에는 같은 commit의 `git archive`로 다시 확인하고,
-GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한다.
+release commit source만 새 임시 디렉터리로 복사하고 기존 `.build`와 작업 디렉터리
+밖의 별도 scratch에서 architecture boundary와 warnings-as-errors debug·release test
+89/89을 통과했다. 같은 commit의 `git archive`를 다시 확인했고, 게시 뒤 GitHub
+Release에서 내려받은 source archive의 SHA-256도 일치했다.
 
 ## 플랫폼 제약으로 실행하지 못한 항목
 
@@ -86,7 +85,6 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
 - 실제 OpenRouter browser 승인과 authorization-code 교환은 실행하지 못했다.
 - `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인은 별도로 실행하지
   않았다.
-- `0.2.0` tag와 게시된 source archive는 아직 존재하지 않는다.
 - 첫 live harness가 임의의 catalog 첫 모델과 64-token 제한으로 HTTP 400을 받았다.
   기존 live-qualified 모델과 제품 기본 output 계약으로 교정한 뒤 통과했으므로
   product failure가 아니라 harness failure로 분류했다.
@@ -107,6 +105,5 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
   공개가 최대 5초 늦어질 수 있다.
 
 현재 접근 가능한 로컬 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아
-있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. 로컬 검증을 통과한
-exact commit과 tag/archive의 동일성을 확인하기 전에는 `0.2.0`을 게시 완료로
-표시하지 않는다.
+있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. `0.2.0`은 로컬 검증을
+통과한 exact commit과 tag/archive의 동일성을 확인한 뒤 게시됐다.
