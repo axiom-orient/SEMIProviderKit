@@ -29,6 +29,8 @@ Release를 만들지 않는다.
 - Thread Sanitizer와 Address Sanitizer: 각각 89/89 통과
 - format, product/target/import/source boundary, Markdown link: 통과
 - public symbol graph: 새 credential store API 존재, 제거한 공개 이름 부재
+- SwiftPM API 진단: `0.1.0` 대비 공개 credential 계약 2개와 package-scoped
+  initializer·decoder 계약을 합친 예상된 breaking change 10개 확인
 - commit source의 clean `git archive`: debug/release 각각 89/89 통과
 - 독립 public SwiftPM consumer: compile·run 통과
 - 실제 Soa:
@@ -48,6 +50,8 @@ Release를 만들지 않는다.
 - [ ] `swift format lint --strict --recursive Package.swift Sources Tests`가 통과한다.
 - [ ] `python3 Scripts/verify-providerkit-boundaries.py`가 통과한다.
 - [ ] warnings-as-errors debug/release tests가 통과한다.
+- [ ] `0.1.0` 기준 SwiftPM API 진단 결과가 release notes의 breaking change와
+      일치한다.
 - [ ] final commit을 `origin/main`에 push한다.
 - [ ] 그 exact commit의 GitHub Actions가 성공한다.
 - [ ] `0.2.0` annotated tag가 그 exact commit을 가리킨다.

@@ -58,6 +58,8 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 - product·target·import·source boundary verifier: 통과
 - public symbol graph: 새 credential store 이름과 initializer label 존재, 제거한 공개
   이름 부재
+- SwiftPM API 진단: `0.1.0` 대비 공개 credential 계약 2개와 package-scoped
+  initializer·decoder 계약을 합친 예상된 breaking change 10개 확인
 - 독립 SwiftPM release consumer: public `ProviderCredentialStore`,
   `InMemoryProviderCredentialStore`, `ProviderRuntime` compile·run 통과
 - 실제 process-lifetime store와 Soa 경계:

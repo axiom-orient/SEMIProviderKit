@@ -13,16 +13,18 @@
 
 ## Breaking changes
 
-`0.1.0` consumer는 credential store protocol 이름과 `ProviderRuntime` initializer의
-`credentialStore:` label에 맞춰 source를 갱신해야 한다. 이전 이름을 유지하는 호환
-wrapper는 제공하지 않는다.
+`0.1.0` consumer는 credential store protocol 이름과 공개 `ProviderRuntime`
+initializer의 `credentialStore:` label에 맞춰 source를 갱신해야 한다. 이전 이름을
+유지하는 호환 wrapper는 제공하지 않는다.
 
 ## Verification
 
 macOS 26, Swift 6.3.3에서 warnings-as-errors debug/release, 89개 test,
 Thread Sanitizer, Address Sanitizer, clean source archive, 독립 SwiftPM consumer를
-검증했다. 실제 Soa account 등록·model 조회·text turn·revoke 실패 경로와 sibling ASA
-통합 흐름도 통과했다.
+검증했다. SwiftPM의 `0.1.0` 기준 API 진단에서 공개 credential 계약 2개와
+package-scoped initializer·decoder 계약을 합친 예상된 breaking change 10개를
+확인했다. 실제 Soa account 등록·model 조회·text turn·revoke 실패 경로와 sibling
+ASA 통합 흐름도 통과했다.
 
 ## Known limitations
 
