@@ -82,7 +82,8 @@ Xcode·IDE 개인 상태, sanitizer·coverage 결과, 로그와 로컬 환경 �
 
 지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
 [`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md), 최종 검증 결과와 제약은
-[`Docs/COMPLETION_REPORT.md`](Docs/COMPLETION_REPORT.md)에 있다.
+[`Docs/COMPLETION_REPORT.md`](Docs/COMPLETION_REPORT.md), 현재 릴리스 준비 상태는
+[`Docs/RELEASE_0.2.0.md`](Docs/RELEASE_0.2.0.md)에 있다.
 
 ## License
 

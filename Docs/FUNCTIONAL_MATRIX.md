@@ -11,7 +11,7 @@
 | F-05 | cancel·terminal exactly-once | ProviderKit | admission-ordered session start, execution reducer/session, single session registry with early ID release | immediate cancel, deadline, cleanup, reuse, shutdown, execute/shutdown interleaving tests | PASS |
 | F-06 | bounded backpressure | ProviderKit | bounded mailbox, terminal reserved slot, text batch, bounded transport body buffer | core/runtime mailbox overflow, transport backpressure tests | PASS |
 | F-07 | account readiness inspect | ProviderKit | `verificationRequired → inspect → ready`, credential contract | restart/readiness, invalid/no-op/source mismatch tests | PASS |
-| F-08 | Soa external auth file | ProviderKit | `SecureRegularFileReader`, bounded async managed/installed Codex version resolver, Soa adapter | symlink·size·header injection·version fallback·wedged process tests, ASA live account/catalog/turn | PASS |
+| F-08 | Soa external auth file | ProviderKit | `SecureRegularFileReader`, bounded async managed/installed Codex version resolver, Soa adapter | symlink·size·header injection·version fallback·wedged process tests, current ProviderKit account/catalog/turn + ASA analyzed live flow | PASS |
 | F-09 | OpenRouter direct 호출 | ProviderKit | direct HTTP/SSE adapter | request/privacy/OAuth fixtures | LIVE_REQUIRED |
 | F-10 | API key 계정 | ProviderKit + 선택적 호출자 저장 adapter | `InMemoryProviderCredentialStore` 또는 `ProviderCredentialStore` 주입 | public in-memory lifecycle + registration transaction tests | LIVE_REQUIRED |
 | F-11 | OAuth 계정 | ProviderKit + Apple | OpenRouter PKCE broker, loopback session | RFC PKCE, callback/replay tests | LIVE_REQUIRED |
@@ -39,7 +39,7 @@
 | F-33 | JSON 변환 축소 | ProviderKit | bounded `ProviderJSONValue` | deterministic round-trip tests | PASS |
 | F-34 | 요청별 immutable selection | ProviderKit | `ProviderTurnRequest.selection` | active request/retry tests | PASS |
 | F-35 | runtime shutdown/drain | ProviderKit; 제품 lifecycle은 SEMI | lifecycle admission fence, child join | concurrent shutdown tests | PASS |
-| F-36 | published release provenance | 저장소 | Git commit, `0.1.0` tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + GitHub Actions | PASS (`0.1.0`) |
+| F-36 | published release provenance | 저장소 | Git commit, `0.1.0` tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + GitHub Actions | PASS (`0.1.0`); `0.2.0` NO-GO pending exact-SHA CI |
 
 ## 구조적 불변식
 

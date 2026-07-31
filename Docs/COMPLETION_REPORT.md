@@ -56,8 +56,18 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
 - Address Sanitizer: 89/89 통과
 - `swift-format lint -r -s Sources Tests Package.swift`: 위반 없음
 - product·target·import·source boundary verifier: 통과
+- public symbol graph: 새 credential store 이름과 initializer label 존재, 제거한 공개
+  이름 부재
 - 독립 SwiftPM release consumer: public `ProviderCredentialStore`,
   `InMemoryProviderCredentialStore`, `ProviderRuntime` compile·run 통과
+- 실제 process-lifetime store와 Soa 경계:
+  - missing auth file은 `authentication_failed` 뒤 staged credential 보상 삭제
+  - 실제 auth file로 등록, model 8개 조회, `gpt-5.6-terra` text turn 완료
+  - revoke 뒤 같은 account 실행은 `account_unavailable`
+- sibling ASA current source:
+  - 중복 credential wrapper를 제거하고 public in-memory store를 직접 사용
+  - warnings-as-errors release build, XCTest 100/100, Swift Testing 2/2 통과
+  - actual provider status와 read-only analyzed flow(`assurance=reviewed`) 통과
 - GitHub Actions는 공개 `0.1.0` commit에서 통과했다. `0.2.0` 후보는 push 전이므로
   원격 CI 결과가 아직 없다.
 
@@ -76,8 +86,9 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
 - `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인 전용 CI는 실행하지
   않았다.
 - 현재 source의 원격 GitHub Actions와 `0.2.0` source archive는 아직 존재하지 않는다.
-- sibling ASA source는 공개 이름 변경 전 API를 사용하므로 이번 저장소 범위에서는
-  current candidate와 다시 build하지 못했다.
+- 첫 live harness가 임의의 catalog 첫 모델과 64-token 제한으로 HTTP 400을 받았다.
+  기존 live-qualified 모델과 제품 기본 output 계약으로 교정한 뒤 통과했으므로
+  product failure가 아니라 harness failure로 분류했다.
 
 ## 알려진 잔여 위험
 
@@ -95,5 +106,5 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
   공개가 최대 5초 늦어질 수 있다.
 
 현재 접근 가능한 로컬 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아
-있지 않다. 다만 ASA를 포함한 기존 consumer update, 원격 CI와 live qualification이
-끝나기 전에는 `0.2.0`을 final release로 표시하지 않는다.
+있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. 현재 후보 exact SHA의
+원격 CI와 tag/archive 검증 전에는 `0.2.0`을 final release로 표시하지 않는다.
