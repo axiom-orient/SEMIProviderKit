@@ -5,8 +5,8 @@
 macOS 26 전용 Provider 실행 package의 account lifecycle, direct model turn,
 streaming, retry·cancel·shutdown, credential recovery와 OAuth 경계는 구현·검증됐다.
 공개된 버전은 `0.1.0`이고 현재 source는 credential API를 명확히 한 `0.2.0`
-후보다. 현재 후보도 로컬 clean extraction을 통과해야 하며, GitHub Actions를 통과한
-tagged commit만 새 release로 게시한다.
+후보다. GitHub Actions와 GitHub CI는 사용하지 않는다. 로컬 clean extraction을
+통과한 exact commit만 새 release로 게시한다.
 
 ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, durable run
 저장은 의도적으로 포함하지 않는다. 입력·출력·산출물 소유권은
@@ -70,8 +70,7 @@ identifier와 repository-internal checksum 계층은 Git tree와 중복되어 �
   - 중복 credential wrapper를 제거하고 public in-memory store를 직접 사용
   - warnings-as-errors release build, XCTest 100/100, Swift Testing 2/2 통과
   - actual provider status와 read-only analyzed flow(`assurance=reviewed`) 통과
-- GitHub Actions는 공개 `0.1.0` commit에서 통과했다. `0.2.0` 후보는 push 전이므로
-  원격 CI 결과가 아직 없다.
+- 저장소의 자동 workflow를 제거했고 로컬 검증 결과만 release gate로 사용한다.
 
 ## Clean extraction 검증
 
@@ -85,9 +84,9 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
 - OpenAI, Anthropic, Gemini, OpenRouter와 API-key Provider의 실제 계정별 live
   qualification은 credential이 없어 실행하지 못했다.
 - 실제 OpenRouter browser 승인과 authorization-code 교환은 실행하지 못했다.
-- `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인 전용 CI는 실행하지
+- `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인은 별도로 실행하지
   않았다.
-- 현재 source의 원격 GitHub Actions와 `0.2.0` source archive는 아직 존재하지 않는다.
+- `0.2.0` tag와 게시된 source archive는 아직 존재하지 않는다.
 - 첫 live harness가 임의의 catalog 첫 모델과 64-token 제한으로 HTTP 400을 받았다.
   기존 live-qualified 모델과 제품 기본 output 계약으로 교정한 뒤 통과했으므로
   product failure가 아니라 harness failure로 분류했다.
@@ -108,5 +107,6 @@ GitHub가 release tag에서 생성하는 source archive는 게시 후 확인한�
   공개가 최대 5초 늦어질 수 있다.
 
 현재 접근 가능한 로컬 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아
-있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. 현재 후보 exact SHA의
-원격 CI와 tag/archive 검증 전에는 `0.2.0`을 final release로 표시하지 않는다.
+있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. 로컬 검증을 통과한
+exact commit과 tag/archive의 동일성을 확인하기 전에는 `0.2.0`을 게시 완료로
+표시하지 않는다.

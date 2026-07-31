@@ -62,7 +62,7 @@ credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하�
 | [`Tests/`](Tests/) | Core·Runtime·Apple 회귀 테스트 |
 | [`Scripts/`](Scripts/) | product·target·import 경계 검증 |
 | [`Package.swift`](Package.swift) | 유일한 build manifest |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | macOS 26 format·경계·test CI |
+| [`AGENTS.md`](AGENTS.md) | 로컬 검증·릴리스 작업 규칙 |
 | [`.gitignore`](.gitignore) | 재생성·로컬 전용 파일 제외 규칙 |
 | [`LICENSE`](LICENSE) | MIT 라이선스 |
 
@@ -74,11 +74,12 @@ swift test --parallel -Xswiftc -warnings-as-errors
 python3 Scripts/verify-providerkit-boundaries.py
 ```
 
-Git commit이 canonical source identity다. 배포는 clean working tree의 commit에 semantic
-version tag를 붙이고, archive가 필요하면 해당 commit에서 생성한다. build cache,
-Xcode·IDE 개인 상태, sanitizer·coverage 결과, 로그와 로컬 환경 파일은 `.gitignore`로
-저장소에서 배제한다. `Package.resolved`는 향후 생성되면 dependency 변경을 검토할 수
-있도록 추적한다.
+Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사용하지
+않으며, 배포는 로컬에서 검증한 clean working tree의 commit에 semantic version tag를
+붙인다. archive가 필요하면 해당 commit에서 생성한다. build cache, Xcode·IDE 개인
+상태, sanitizer·coverage 결과, 로그와 로컬 환경 파일은 `.gitignore`로 저장소에서
+배제한다. `Package.resolved`는 향후 생성되면 dependency 변경을 검토할 수 있도록
+추적한다.
 
 지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
 [`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md), 최종 검증 결과와 제약은

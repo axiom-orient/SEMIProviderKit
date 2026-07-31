@@ -39,7 +39,7 @@
 | F-33 | JSON 변환 축소 | ProviderKit | bounded `ProviderJSONValue` | deterministic round-trip tests | PASS |
 | F-34 | 요청별 immutable selection | ProviderKit | `ProviderTurnRequest.selection` | active request/retry tests | PASS |
 | F-35 | runtime shutdown/drain | ProviderKit; 제품 lifecycle은 SEMI | lifecycle admission fence, child join | concurrent shutdown tests | PASS |
-| F-36 | published release provenance | 저장소 | Git commit, `0.1.0` tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + GitHub Actions | PASS (`0.1.0`); `0.2.0` NO-GO pending exact-SHA CI |
+| F-36 | published release provenance | 저장소 | Git commit, tag, GitHub Release, `Docs/COMPLETION_REPORT.md` | local clean extraction + tag/tree identity | PASS (`0.1.0`); `0.2.0` local GO, not published |
 
 ## 구조적 불변식
 

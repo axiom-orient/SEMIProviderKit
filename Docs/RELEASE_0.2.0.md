@@ -2,9 +2,9 @@
 
 ## Status
 
-`0.2.0`은 준비 중이며 아직 게시하지 않는다. 현재 판정은 `NO-GO`다. 최종 commit을
-`origin/main`에 push하고 그 commit의 GitHub Actions가 통과하기 전에는 tag나 GitHub
-Release를 만들지 않는다.
+`0.2.0`은 아직 게시하지 않았다. 현재 로컬 릴리스 판정은 `GO`다. 최종 commit의 clean
+archive가 macOS 26 로컬 검증을 통과하면 그 commit을 그대로 push, tag, GitHub
+Release 게시할 수 있다. GitHub Actions와 GitHub CI는 사용하지 않는다.
 
 기준 release는 `0.1.0`
 (`17529125600f7156b3fda16497354562b2296887`)이다. `0.2.0`은 credential 공개 계약을
@@ -52,10 +52,10 @@ Release를 만들지 않는다.
 - [ ] warnings-as-errors debug/release tests가 통과한다.
 - [ ] `0.1.0` 기준 SwiftPM API 진단 결과가 release notes의 breaking change와
       일치한다.
+- [ ] final commit의 clean `git archive`를 새 디렉터리에서 검증한다.
 - [ ] final commit을 `origin/main`에 push한다.
-- [ ] 그 exact commit의 GitHub Actions가 성공한다.
 - [ ] `0.2.0` annotated tag가 그 exact commit을 가리킨다.
-- [ ] tag source archive를 새 scratch에서 다시 build/test한다.
+- [ ] tag source archive가 로컬에서 검증한 commit과 동일한 tree인지 확인한다.
 - [ ] [사용자용 release notes](RELEASE_NOTES_0.2.0.md)가 최종 API와 잔여 위험을
       정확히 설명한다.
 
@@ -64,10 +64,6 @@ Release를 만들지 않는다.
 ```bash
 git push origin main
 candidate_sha=$(git rev-parse HEAD)
-gh run list \
-  --repo axiom-orient/SEMIProviderKit \
-  --commit "$candidate_sha" \
-  --json headSha,status,conclusion,url
 git tag -a 0.2.0 -m "SEMIProviderKit 0.2.0"
 git push origin 0.2.0
 release_dir=$(mktemp -d)
@@ -90,16 +86,15 @@ gh release create 0.2.0 \
   "$release_dir/SEMIProviderKit-0.2.0-source.tar.gz.sha256"
 ```
 
-Tag push 전에는 `git rev-parse HEAD`, `git rev-parse origin/main`과 성공한 workflow의
-`headSha`가 모두 같아야 한다. 별도 source archive는 tagged commit의 `git archive`로
-생성하고 checksum은 archive 밖에 둔다. 위 임시 release directory는 게시와 asset
-다운로드 검증이 끝난 뒤 삭제한다.
+Tag push 전에는 `git rev-parse HEAD`와 `git rev-parse origin/main`이 같고 working
+tree가 clean해야 한다. 별도 source archive는 로컬 검증을 통과한 tagged commit의
+`git archive`로 생성하고 checksum은 archive 밖에 둔다. 위 임시 release directory는
+게시와 asset 다운로드 검증이 끝난 뒤 삭제한다.
 
 ## Stop and rollback
 
 다음 중 하나면 게시를 중단한다.
 
-- final commit CI가 실패하거나 다른 SHA에서만 성공했다.
 - clean archive가 build/test되지 않는다.
 - public consumer 또는 ASA integration이 새 source에서 compile되지 않는다.
 - 실제 credential, terminal cleanup, revoke 격리에서 회귀가 확인된다.
@@ -116,5 +111,5 @@ Tag push 전에는 `git rev-parse HEAD`, `git rev-parse origin/main`과 성공�
   계속 필요하다.
 - Soa endpoint와 외부 auth schema는 안정된 공개 API가 아니다.
 - persistent credential store의 내구성·보안은 이를 구현하는 consumer 책임이다.
-- Swift 6.2 전용 toolchain CI는 없고 macOS 26 current Xcode와 Swift 6.3.3에서
-  검증했다.
+- Swift 6.2 전용 toolchain은 별도로 실행하지 않았고 macOS 26 current Xcode와 Swift
+  6.3.3에서 검증했다.
