@@ -39,7 +39,10 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
   }
 
   package func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder {
-    GeminiInteractionsStreamDecoder(selection: request.selection)
+    GeminiInteractionsStreamDecoder(
+      selection: request.selection,
+      exposesContinuation: ProviderWireValidation.storesServerSideResponse(request)
+    )
   }
 
   package func inspect(
@@ -174,6 +177,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
   }
 
   private func encodeRequest(_ request: ProviderTurnRequest) throws -> ProviderJSONValue {
+    try ProviderWireValidation.requireServerSideContinuationOptIn(request)
     var system: [String] = []
     var input: [ProviderJSONValue] = []
 
@@ -220,7 +224,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       "model": .string(request.selection.modelID.rawValue),
       "input": .array(input),
       "stream": true,
-      "store": false,
+      "store": .bool(ProviderWireValidation.storesServerSideResponse(request)),
     ]
     if !system.isEmpty {
       body["system_instruction"] = .string(system.joined(separator: "\n\n"))
@@ -300,14 +304,16 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
   }
 
   private let selection: ProviderSelection
+  private let exposesContinuation: Bool
   private var responseID: String?
   private var steps: [Int: StepState] = [:]
   private var completion: ProviderCompletionDraft?
   private var emittedToolCount = 0
   private var sawDone = false
 
-  init(selection: ProviderSelection) {
+  init(selection: ProviderSelection, exposesContinuation: Bool) {
     self.selection = selection
+    self.exposesContinuation = exposesContinuation
   }
 
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent] {
@@ -453,12 +459,15 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
           message: "Gemini interaction ended with status \(status ?? "unknown")")
       }
       let usage = try parseUsage(interaction?["usage"])
-      let continuation = try identifier.map { value in
-        try ProviderContinuation(
+      let continuation: ProviderContinuation?
+      if exposesContinuation, let identifier {
+        continuation = try ProviderContinuation(
           providerID: selection.providerID,
           accountID: selection.accountID,
-          value: value
+          value: identifier
         )
+      } else {
+        continuation = nil
       }
       let value = ProviderCompletionDraft(
         responseID: identifier,

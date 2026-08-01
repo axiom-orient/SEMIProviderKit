@@ -22,7 +22,7 @@ SEMIProviderKit의 단위는 “선택된 Provider·계정·모델로 실행하�
 ```
 
 `Runtime → Core ← Apple`만 허용한다. Runtime과 Apple은 서로 import하지 않으며 세
-product 모두 SEMI 앱, ASA, SwiftUI, Observation, TCA, tool executor를 import하지
+product 모두 상위 앱, SwiftUI, Observation, TCA, tool executor를 import하지
 않는다. 이 규칙은 `Scripts/verify-providerkit-boundaries.py`가 fail-closed로 검사한다.
 
 ## State, event, effect
@@ -44,6 +44,11 @@ Runtime lifecycle, OAuth replay window, credential 저장은 공유 상태와 �
 존재해 actor로 격리한다. Runtime의 세 단계 lifecycle은 자원 drain과 직접 결합된 작은
 admission fence라 별도 reducer로 복제하지 않는다. 즉 상태 전이 규칙이 복잡하고
 effect를 명시적으로 검증해야 하는 두 영역에만 reducer를 적용한다.
+
+Provider adapter 내부에서도 credential material 해석과 provider wire codec을 분리한다.
+예를 들어 `CodexCredentialResolver`는 caller-owned `auth.json`의 안전한 읽기와 client
+version 해석만 맡고, `OpenAIResponsesAdapter`는 Responses 요청·SSE codec만 맡는다.
+따라서 외부 파일 경계의 보안·수명 정책이 Responses payload 구현에 역류하지 않는다.
 
 UI 상태는 package 밖에서 `ProviderEventStream` 또는 `ProviderAccountEventStream`을
 Observation/TCA action으로 투영한다. UI 종속 타입을 Core에 넣지 않는다.
@@ -105,7 +110,7 @@ terminal은 cleanup 뒤에 공개한다.
 AppKit/Network 부재용 동작 대체 계층은 두지 않는다. Security는 PKCE용 CSPRNG에만
 사용한다.
 
-Soa의 관리된 `version.json` 우선 탐색과 표준 ChatGPT 앱의 embedded Codex version
+Codex의 관리된 `version.json` 우선 탐색과 표준 ChatGPT 앱의 embedded Codex version
 탐색은 현재 인증 wire 계약을 충족하기 위한 실사용 경로이므로 유지한다.
 
 embedded executable probe는 subprocess를 쓰므로 `makeExecutionRequest`가 async다.

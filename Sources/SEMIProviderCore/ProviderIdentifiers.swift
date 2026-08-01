@@ -249,7 +249,7 @@ public struct ProviderConformanceReceiptID: RawRepresentable, Hashable, Codable,
 }
 
 public enum BuiltInProviderID {
-  public static let soa = required("soa")
+  public static let codex = required("codex")
   public static let openAI = required("openai")
   public static let anthropic = required("anthropic")
   public static let gemini = required("gemini")

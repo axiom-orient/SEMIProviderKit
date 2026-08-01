@@ -17,10 +17,21 @@ reasoning, continuation과 timeout·byte·retry·privacy constraint를 담는다
 `Codable` 왕복은 이 필드를 모두 보존한다. 정책이 직렬화에서 사라지면 `.required` tool
 choice가 `.automatic`으로 조용히 낮아지므로, 왕복 보존은 회귀 테스트로 고정한다.
 
+`ProviderContinuation`은 OpenAI Responses의 `previous_response_id` 또는 Gemini
+Interactions의 `previous_interaction_id`처럼 provider 서버 상태를 참조한다. 이 경로는
+서버 저장이 필요하므로 `dataCollection: .allow`와
+`requiresZeroDataRetention: false`를 함께 명시해야 한다. 기본 no-retention 정책에서
+continuation을 보내면 `capabilityMismatch`로 거부한다. 이 opt-in은 첫 요청에서도
+`store: true`를 만들어 다음 응답의 continuation을 실제로 재사용할 수 있게 하며,
+continuation 요청의 wire에도 `store: true`를 명시한다. continuation을 지원하지 않는
+dialect는 같은 이유로 fail-closed 한다. Codex subscription endpoint는 이 저장
+continuation을 qualified capability로 제공하지 않으므로 `ProviderContinuation`을
+`capabilityMismatch`로 거부하고 항상 stateless request를 보낸다.
+
 Credential은 Runtime 생성 시 주입한 `ProviderCredentialStore`를 통해서만 읽는다.
 `InMemoryProviderCredentialStore`를 쓰면 API key와 OAuth-derived key는 process
 lifetime에만 존재한다. durable 보존이 필요하면 실제 secret 저장은 호출자 책임이다.
-Soa `auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을
+Codex `auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을
 복사하지 않고 store가 보존한 검증된 파일 참조를 읽는다.
 
 ## Outputs
@@ -52,7 +63,7 @@ ProviderKit은 실행 중 파일, 대화 기록, UI state, tool receipt, 문서 
 | `Package.resolved` | 선택적 dependency resolution 기록 | 생성되면 검토·추적; build cache로 취급하지 않음 |
 | `.build/`, `.swiftpm/`, DerivedData | 재생성 가능한 build output | 저장소에 보존하지 않음 |
 | credential secret | 외부 runtime input | in-memory 또는 호출자 store가 보관; 문서·로그·artifact에 기록 금지 |
-| Soa `auth.json` | caller-managed external input | 경로만 참조; 복사·수정하지 않음 |
+| Codex `auth.json` | caller-managed external input | 경로만 참조; 복사·수정하지 않음 |
 | model event stream | ephemeral output | 호출자가 소비·저장·UI 투영 |
 | `Docs/COMPLETION_REPORT.md` | 검증 기록 | 실제 명령 결과만 기록 |
 

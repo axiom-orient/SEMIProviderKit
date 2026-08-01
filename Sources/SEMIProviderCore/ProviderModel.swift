@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ProviderProtocolFamily: String, Codable, CaseIterable, Sendable {
-  case soaResponses = "soa_responses"
+  case codexResponses = "codex_responses"
   case openAIResponses = "openai_responses"
   case anthropicMessages = "anthropic_messages"
   case geminiInteractions = "gemini_interactions"

@@ -32,7 +32,7 @@ struct ProviderRuntimeTests {
     #expect(
       Set(descriptors.map(\.id))
         == Set([
-          BuiltInProviderID.soa,
+          BuiltInProviderID.codex,
           BuiltInProviderID.openAI,
           BuiltInProviderID.anthropic,
           BuiltInProviderID.gemini,
@@ -133,10 +133,10 @@ struct ProviderRuntimeTests {
     }
   }
 
-  @Test("Soa external credentials reject header injection at the file boundary")
-  func soaCredentialHeaderInjection() async throws {
+  @Test("Codex external credentials reject header injection at the file boundary")
+  func codexCredentialHeaderInjection() async throws {
     let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("providerkit-soa-auth-\(UUID().uuidString)", isDirectory: true)
+      .appendingPathComponent("providerkit-codex-auth-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -146,12 +146,12 @@ struct ProviderRuntimeTests {
       .write(to: auth)
     try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(to: version)
 
-    let request = try makeRequest(providerID: BuiltInProviderID.soa)
+    let request = try makeRequest(providerID: BuiltInProviderID.codex)
     let record = ProviderCredentialRecord(
-      reference: try ProviderCredentialReference("soa-ref"),
+      reference: try ProviderCredentialReference("codex-ref"),
       accountID: request.selection.accountID,
-      providerID: BuiltInProviderID.soa,
-      label: "Soa",
+      providerID: BuiltInProviderID.codex,
+      label: "Codex",
       source: .externalAuthFileReference,
       state: .active,
       endpoint: nil,
@@ -163,15 +163,17 @@ struct ProviderRuntimeTests {
       material: try ProviderCredentialMaterial(externalAuthFilePath: auth.path)
     )
     await expectThrownProviderFailure {
-      _ = try await OpenAIResponsesAdapter(kind: .soa).makeExecutionRequest(
+      _ = try await OpenAIResponsesAdapter(kind: .codex).makeExecutionRequest(
         request, credential: lease)
     }
   }
 
-  @Test("Soa client version uses managed metadata and falls back to an installed Codex executable")
-  func soaClientVersionResolution() async throws {
+  @Test(
+    "Codex client version uses managed metadata and falls back to an installed Codex executable"
+  )
+  func codexClientVersionResolution() async throws {
     let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("providerkit-soa-version-\(UUID().uuidString)", isDirectory: true)
+      .appendingPathComponent("providerkit-codex-version-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -185,22 +187,22 @@ struct ProviderRuntimeTests {
     )
 
     #expect(
-      try await SoaCodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
+      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
         == "9.8.7-test"
     )
 
     let version = directory.appendingPathComponent("version.json")
     try Data(#"{"latest_version":"1.2.3-managed"}"#.utf8).write(to: version)
     #expect(
-      try await SoaCodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
+      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
         == "1.2.3-managed"
     )
   }
 
   @Test("A wedged Codex installation cannot stall a turn or its deadline")
-  func soaClientVersionProbeIsBounded() async throws {
+  func codexClientVersionProbeIsBounded() async throws {
     let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("providerkit-soa-hang-\(UUID().uuidString)", isDirectory: true)
+      .appendingPathComponent("providerkit-codex-hang-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -217,7 +219,7 @@ struct ProviderRuntimeTests {
     // Resolution must be abandonable by the caller rather than blocking whoever
     // awaits it, which is what would starve the execution deadline watcher.
     let probe = Task {
-      try await SoaCodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
+      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
     }
     try await Task.sleep(for: .milliseconds(200))
     probe.cancel()
@@ -632,6 +634,163 @@ struct ProviderRuntimeTests {
     #expect(root["stream"]?.boolValue == true)
     #expect(root["tool_choice"]?.stringValue == "auto")
     #expect(root.value(at: "response_format", "mime_type")?.stringValue == "application/json")
+  }
+
+  @Test("Server-side continuations require an explicit retention opt-in")
+  func serverSideContinuationRetention() async throws {
+    let continuation = try ProviderContinuation(
+      providerID: BuiltInProviderID.gemini,
+      accountID: ProviderAccountID("account-1"),
+      value: "interaction-1"
+    )
+    let defaultRequest = try makeRequest(
+      providerID: BuiltInProviderID.gemini,
+      continuation: continuation
+    )
+    await expectCapabilityMismatch {
+      _ = try await encodedBody(
+        GeminiInteractionsAdapter(),
+        request: defaultRequest
+      )
+    }
+
+    let optInConstraints = try ProviderRequestConstraints(
+      dataCollection: .allow,
+      requiresZeroDataRetention: false
+    )
+    let optedInRequest = try makeRequest(
+      providerID: BuiltInProviderID.gemini,
+      continuation: continuation,
+      constraints: optInConstraints
+    )
+    let initialGeminiRequest = try makeRequest(
+      providerID: BuiltInProviderID.gemini,
+      constraints: optInConstraints
+    )
+    let initialGeminiBody = try await encodedBody(
+      GeminiInteractionsAdapter(),
+      request: initialGeminiRequest
+    )
+    #expect(initialGeminiBody["store"]?.boolValue == true)
+    let geminiBody = try await encodedBody(
+      GeminiInteractionsAdapter(),
+      request: optedInRequest
+    )
+    #expect(geminiBody["store"]?.boolValue == true)
+    #expect(geminiBody["previous_interaction_id"]?.stringValue == "interaction-1")
+
+    let openAIContinuation = try ProviderContinuation(
+      providerID: BuiltInProviderID.openAI,
+      accountID: ProviderAccountID("account-1"),
+      value: "response-1"
+    )
+    let openAIRequest = try makeRequest(
+      providerID: BuiltInProviderID.openAI,
+      continuation: openAIContinuation,
+      constraints: optInConstraints
+    )
+    let openAIBody = try await encodedBody(
+      OpenAIResponsesAdapter(kind: .openAI),
+      request: openAIRequest
+    )
+    #expect(openAIBody["store"]?.boolValue == true)
+    #expect(openAIBody["previous_response_id"]?.stringValue == "response-1")
+
+    let initialOpenAIRequest = try makeRequest(
+      providerID: BuiltInProviderID.openAI,
+      constraints: optInConstraints
+    )
+    let initialOpenAIBody = try await encodedBody(
+      OpenAIResponsesAdapter(kind: .openAI),
+      request: initialOpenAIRequest
+    )
+    #expect(initialOpenAIBody["store"]?.boolValue == true)
+
+    let defaultOpenAIRequest = try makeRequest(providerID: BuiltInProviderID.openAI)
+    let defaultDecoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+      for: defaultOpenAIRequest
+    )
+    let defaultCompletion = try defaultDecoder.consume(
+      .init(
+        event: "response.completed",
+        data: #"{"type":"response.completed","response":{"id":"response-1","status":"completed"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      )
+    )
+    #expect(completionContinuation(defaultCompletion) == nil)
+
+    let optedInDecoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+      for: initialOpenAIRequest
+    )
+    let optedInCompletion = try optedInDecoder.consume(
+      .init(
+        event: "response.completed",
+        data: #"{"type":"response.completed","response":{"id":"response-1","status":"completed"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      )
+    )
+    #expect(completionContinuation(optedInCompletion)?.value == "response-1")
+
+    let codexContinuation = try ProviderContinuation(
+      providerID: BuiltInProviderID.codex,
+      accountID: ProviderAccountID("account-1"),
+      value: "response-1"
+    )
+    let codexRequest = try makeRequest(
+      providerID: BuiltInProviderID.codex,
+      continuation: codexContinuation,
+      constraints: optInConstraints
+    )
+    let directoryName = "providerkit-codex-continuation-\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(directoryName, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let auth = directory.appendingPathComponent("auth.json")
+    try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
+    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
+      to: directory.appendingPathComponent("version.json")
+    )
+    let codexLease = ProviderCredentialLease(
+      record: ProviderCredentialRecord(
+        reference: try ProviderCredentialReference("codex-ref"),
+        accountID: codexRequest.selection.accountID,
+        providerID: BuiltInProviderID.codex,
+        label: "Codex",
+        source: .externalAuthFileReference,
+        state: .active,
+        endpoint: nil,
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 1)
+      ),
+      material: try ProviderCredentialMaterial(externalAuthFilePath: auth.path)
+    )
+    let codexAdapter = OpenAIResponsesAdapter(kind: .codex)
+    await expectCapabilityMismatch {
+      _ = try await codexAdapter.makeExecutionRequest(codexRequest, credential: codexLease)
+    }
+    let codexOptedInRequest = try makeRequest(
+      providerID: BuiltInProviderID.codex,
+      constraints: optInConstraints
+    )
+    let codexWire = try await codexAdapter.makeExecutionRequest(
+      codexOptedInRequest,
+      credential: codexLease
+    )
+    let codexBody = try ProviderJSONValue.decode(from: try #require(codexWire.urlRequest.httpBody))
+    #expect(codexBody["store"]?.boolValue == false)
+    let codexDecoder = try codexAdapter.makeDecoder(for: codexOptedInRequest)
+    let codexCompletion = try codexDecoder.consume(
+      .init(
+        event: "response.completed",
+        data: #"{"type":"response.completed","response":{"id":"response-1","status":"completed"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      )
+    )
+    #expect(completionContinuation(codexCompletion) == nil)
   }
 
   @Test("Provider decoders normalize native text, tools, usage, and completion")
@@ -2556,6 +2715,7 @@ struct ProviderRuntimeTests {
     toolChoice: ProviderToolChoice = .automatic,
     output: ProviderOutputRequirement = .text,
     reasoning: ProviderReasoningPolicy = .automatic,
+    continuation: ProviderContinuation? = nil,
     requestID: String = "request-1",
     constraints: ProviderRequestConstraints = try! ProviderRequestConstraints()
   ) throws -> ProviderTurnRequest {
@@ -2571,6 +2731,7 @@ struct ProviderRuntimeTests {
       toolChoice: toolChoice,
       output: output,
       reasoning: reasoning,
+      continuation: continuation,
       constraints: constraints
     )
   }
@@ -2581,6 +2742,15 @@ struct ProviderRuntimeTests {
   ) async throws -> ProviderJSONValue {
     let wire = try await adapter.makeExecutionRequest(request, credential: try lease(for: request))
     return try ProviderJSONValue.decode(from: try #require(wire.urlRequest.httpBody))
+  }
+
+  private func completionContinuation(
+    _ events: [ProviderDecodedEvent]
+  ) -> ProviderContinuation? {
+    for event in events {
+      if case .completed(let draft) = event { return draft.continuation }
+    }
+    return nil
   }
 
   private func expectThrownProviderFailure(

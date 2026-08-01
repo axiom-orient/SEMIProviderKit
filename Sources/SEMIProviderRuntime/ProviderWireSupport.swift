@@ -389,6 +389,28 @@ package enum ProviderWireValidation {
     }
   }
 
+  /// Returns whether the caller explicitly opted into provider-side response storage.
+  package static func storesServerSideResponse(_ request: ProviderTurnRequest) -> Bool {
+    request.constraints.dataCollection == .allow
+      && !request.constraints.requiresZeroDataRetention
+  }
+
+  /// Provider continuations use server-side state. They must never turn the
+  /// request's default no-retention policy into an implicit storage decision.
+  package static func requireServerSideContinuationOptIn(
+    _ request: ProviderTurnRequest
+  ) throws {
+    guard request.continuation != nil else { return }
+    guard storesServerSideResponse(request)
+    else {
+      throw ProviderFailure(
+        code: .capabilityMismatch,
+        message:
+          "provider continuation requires explicit server-side retention and data-collection opt-in"
+      )
+    }
+  }
+
   package static func appendPath(_ path: String, to base: URL) throws -> URL {
     guard path.hasPrefix("/") else {
       throw ProviderFailure(code: .internalInvariant, message: "provider endpoint path is invalid")

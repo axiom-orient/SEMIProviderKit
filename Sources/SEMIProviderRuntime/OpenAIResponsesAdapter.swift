@@ -3,7 +3,7 @@ import SEMIProviderCore
 
 package struct OpenAIResponsesAdapter: ProviderAdapter {
   package enum Kind: Equatable, Sendable {
-    case soa
+    case codex
     case openAI
   }
 
@@ -11,11 +11,11 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
 
   package var descriptor: ProviderDescriptor {
     switch kind {
-    case .soa:
+    case .codex:
       ProviderDescriptorFactory.make(
-        id: BuiltInProviderID.soa,
-        name: "Soa (ChatGPT subscription)",
-        family: .soaResponses,
+        id: BuiltInProviderID.codex,
+        name: "Codex (ChatGPT subscription)",
+        family: .codexResponses,
         apiKey: false
       )
     case .openAI:
@@ -32,12 +32,18 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
     _ request: ProviderTurnRequest,
     credential: ProviderCredentialLease
   ) async throws -> ProviderHTTPRequest {
+    guard kind != .codex || request.continuation == nil else {
+      throw ProviderFailure(
+        code: .capabilityMismatch,
+        message: "Codex Responses continuation is not qualified"
+      )
+    }
     let endpoint: URL
     let headers: [String: String]
     switch kind {
-    case .soa:
-      let auth = try await SoaCredentialResolver.resolve(credential.material)
-      let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.soa
+    case .codex:
+      let auth = try await CodexCredentialResolver.resolve(credential.material)
+      let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.codex
       endpoint = try ProviderWireValidation.appendPath("/responses", to: base)
       headers = [
         "Authorization": "Bearer \(auth.accessToken)",
@@ -69,7 +75,11 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
   }
 
   package func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder {
-    OpenAIResponsesStreamDecoder(selection: request.selection)
+    OpenAIResponsesStreamDecoder(
+      selection: request.selection,
+      exposesContinuation: supportsServerSideContinuation
+        && ProviderWireValidation.storesServerSideResponse(request)
+    )
   }
 
   package func inspect(
@@ -98,16 +108,16 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
     let endpoint: URL
     let headers: [String: String]
     switch kind {
-    case .soa:
-      let auth = try await SoaCredentialResolver.resolve(credential.material)
-      let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.soa
+    case .codex:
+      let auth = try await CodexCredentialResolver.resolve(credential.material)
+      let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.codex
       var components = URLComponents(
         url: try ProviderWireValidation.appendPath("/models", to: base),
         resolvingAgainstBaseURL: false
       )
       components?.queryItems = [URLQueryItem(name: "client_version", value: auth.clientVersion)]
       guard let url = components?.url else {
-        throw ProviderFailure(code: .invalidRequest, message: "Soa model URL is invalid")
+        throw ProviderFailure(code: .invalidRequest, message: "Codex model URL is invalid")
       }
       endpoint = url
       headers = [
@@ -161,10 +171,13 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
   }
 
   private func encodeRequest(_ request: ProviderTurnRequest) throws -> ProviderJSONValue {
+    if supportsServerSideContinuation {
+      try ProviderWireValidation.requireServerSideContinuationOptIn(request)
+    }
     var input: [ProviderJSONValue] = []
     var instructions: [String] = []
     for message in request.messages {
-      if kind == .soa, message.role == .system || message.role == .developer {
+      if kind == .codex, message.role == .system || message.role == .developer {
         instructions.append(contentsOf: message.content.compactMap(\.textValue))
         continue
       }
@@ -196,12 +209,15 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
       "model": .string(request.selection.modelID.rawValue),
       "input": .array(input),
       "stream": true,
-      "store": false,
+      "store": .bool(
+        supportsServerSideContinuation
+          && ProviderWireValidation.storesServerSideResponse(request)
+      ),
     ]
     if let maximumOutputTokens = request.constraints.maximumOutputTokens {
       body["max_output_tokens"] = .number(Double(maximumOutputTokens))
     }
-    if kind == .soa { body["instructions"] = .string(instructions.joined(separator: "\n\n")) }
+    if kind == .codex { body["instructions"] = .string(instructions.joined(separator: "\n\n")) }
     if !request.tools.isEmpty {
       body["tools"] = .array(
         request.tools.map { tool in
@@ -266,6 +282,10 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
     }
     return .object(body)
   }
+
+  private var supportsServerSideContinuation: Bool {
+    kind == .openAI
+  }
 }
 
 extension ProviderMessageContent {
@@ -273,48 +293,6 @@ extension ProviderMessageContent {
     guard case .text(let text) = self else { return nil }
     return text
   }
-}
-
-private struct SoaResolvedCredential: Sendable {
-  let accessToken: String
-  let accountID: String
-  let clientVersion: String
-}
-
-private enum SoaCredentialResolver {
-  private static let maximumAuthBytes = 1 * 1_024 * 1_024
-
-  static func resolve(_ material: ProviderCredentialMaterial) async throws -> SoaResolvedCredential
-  {
-    guard case .externalAuthFile(let path) = material else {
-      throw ProviderFailure(
-        code: .authenticationFailed, message: "Soa requires an external auth.json reference")
-    }
-    let authURL = URL(fileURLWithPath: path)
-    let auth = try SecureRegularFileReader.read(authURL, maximumBytes: maximumAuthBytes)
-    let root = try ProviderJSONValue.decode(from: auth)
-    guard let rawAccessToken = root.value(at: "tokens", "access_token")?.stringValue,
-      let accountID = root.value(at: "tokens", "account_id")?.stringValue,
-      accountID == accountID.trimmingCharacters(in: .whitespacesAndNewlines),
-      !accountID.isEmpty,
-      accountID.utf8.count <= 512,
-      !accountID.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-    else {
-      throw ProviderFailure(
-        code: .authenticationFailed,
-        message: "Soa auth.json does not contain supported ChatGPT credentials")
-    }
-    let accessToken: String
-    do {
-      accessToken = try SensitiveValue(rawAccessToken).revealed
-    } catch {
-      throw ProviderFailure(
-        code: .authenticationFailed, message: "Soa auth.json contains an invalid access token")
-    }
-    let version = try await SoaCodexClientVersion.resolve(authURL: authURL)
-    return .init(accessToken: accessToken, accountID: accountID, clientVersion: version)
-  }
-
 }
 
 private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
@@ -326,13 +304,15 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
   }
 
   private let selection: ProviderSelection
+  private let exposesContinuation: Bool
   private var responseID: String?
   private var usage: ProviderUsage?
   private var tools: [String: ToolState] = [:]
   private var completed = false
 
-  init(selection: ProviderSelection) {
+  init(selection: ProviderSelection, exposesContinuation: Bool) {
     self.selection = selection
+    self.exposesContinuation = exposesContinuation
   }
 
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent] {
@@ -406,12 +386,15 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       completed = true
       responseID = response["id"]?.stringValue ?? responseID
       usage = try parseUsage(response["usage"])
-      let continuation = try responseID.map {
-        try ProviderContinuation(
+      let continuation: ProviderContinuation?
+      if exposesContinuation, let responseID {
+        continuation = try ProviderContinuation(
           providerID: selection.providerID,
           accountID: selection.accountID,
-          value: $0
+          value: responseID
         )
+      } else {
+        continuation = nil
       }
       return [
         .completed(

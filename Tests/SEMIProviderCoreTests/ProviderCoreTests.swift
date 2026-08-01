@@ -413,6 +413,8 @@ struct ProviderCoreTests {
 
   @Test("Security-sensitive URLs, schemes, secrets, and fallback policy fail closed")
   func securityBoundaryValidation() throws {
+    let externalAuth = try ProviderCredentialMaterial(externalAuthFilePath: "/private/auth.json")
+    #expect(!externalAuth.debugDescription.contains("/private/auth.json"))
     #expect(throws: ProviderCoreError.self) {
       _ = try SensitiveValue("secret\r\ninjected: header")
     }

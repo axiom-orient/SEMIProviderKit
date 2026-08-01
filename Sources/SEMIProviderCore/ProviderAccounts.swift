@@ -28,7 +28,9 @@ public enum ProviderCredentialSource: String, Codable, CaseIterable, Sendable {
   case externalAuthFileReference = "external_auth_file_reference"
 }
 
-public enum ProviderCredentialMaterial: Equatable, Sendable {
+public enum ProviderCredentialMaterial: Equatable, Sendable, CustomStringConvertible,
+  CustomDebugStringConvertible
+{
   case apiKey(SensitiveValue)
   case oauthDerivedKey(SensitiveValue)
   case externalAuthFile(path: String)
@@ -50,6 +52,9 @@ public enum ProviderCredentialMaterial: Equatable, Sendable {
     }
     self = .externalAuthFile(path: path)
   }
+
+  public var description: String { "ProviderCredentialMaterial(<redacted>)" }
+  public var debugDescription: String { description }
 }
 
 public struct ProviderEndpointConfiguration: Codable, Equatable, Sendable {

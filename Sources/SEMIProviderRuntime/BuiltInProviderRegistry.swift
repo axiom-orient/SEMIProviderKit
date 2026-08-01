@@ -6,7 +6,7 @@ package struct BuiltInProviderRegistry: Sendable {
 
   package init() {
     let values: [any ProviderAdapter] = [
-      OpenAIResponsesAdapter(kind: .soa),
+      OpenAIResponsesAdapter(kind: .codex),
       OpenAIResponsesAdapter(kind: .openAI),
       AnthropicMessagesAdapter(kind: .anthropic),
       GeminiInteractionsAdapter(),
@@ -37,7 +37,7 @@ package struct BuiltInProviderRegistry: Sendable {
 
 package enum ProviderEndpointCatalog {
   package static let openAI = URL(string: "https://api.openai.com")!
-  package static let soa = URL(string: "https://chatgpt.com/backend-api/codex")!
+  package static let codex = URL(string: "https://chatgpt.com/backend-api/codex")!
   package static let anthropic = URL(string: "https://api.anthropic.com")!
   package static let gemini = URL(string: "https://generativelanguage.googleapis.com")!
   package static let openRouter = URL(string: "https://openrouter.ai/api/v1")!

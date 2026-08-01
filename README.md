@@ -21,10 +21,7 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 
 ```swift
 // Package.swift
-.package(
-  url: "https://github.com/axiom-orient/SEMIProviderKit.git",
-  from: "0.2.0"
-)
+.package(path: "../SEMIProviderKit")
 ```
 
 ```swift
@@ -50,8 +47,14 @@ credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하�
 `ProviderCredentialStore`를 구현해 주입한다. 어느 방식을 쓰든 수명 주기 종료 시
 `await runtime.shutdown()`을 호출한다.
 
-`0.2.0`은 게시됐다. 배포 앱은 `0.2.0` tag 이상의 게시된 version만 사용하고, 다음
-변경은 local package dependency로 검증한다.
+`ProviderContinuation`은 provider 서버의 이전 응답/interaction 상태를 다시 쓰는
+기능이다. 따라서 기본 no-retention 정책에서는 거부되며, continuation을 생성하거나
+사용할 때는 `dataCollection: .allow`와 `requiresZeroDataRetention: false`를 명시해야
+한다.
+
+기본 subscription provider의 공개 ID는 `codex`다. 현재 source는 compatibility
+wrapper를 제공하지 않으며, 배포 integration은 검증된 tag를 사용하고 개발 중인 source는
+local package dependency로 연결한다.
 
 ## Repository
 
@@ -84,7 +87,7 @@ Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사�
 지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
 [`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md), 최종 검증 결과와 제약은
 [`Docs/COMPLETION_REPORT.md`](Docs/COMPLETION_REPORT.md), 현재 릴리스 준비 상태는
-[`Docs/RELEASE_0.2.0.md`](Docs/RELEASE_0.2.0.md)에 있다.
+[`Docs/RELEASE_READINESS.md`](Docs/RELEASE_READINESS.md)에 있다.
 
 ## License
 

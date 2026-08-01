@@ -9,7 +9,7 @@ import SEMIProviderCore
 /// Resolution is async, bounded, and memoized on purpose. The installation probe runs a
 /// subprocess, so doing it inline on the execution actor would block the deadline watcher and
 /// cancellation for as long as that process took to answer.
-package enum SoaCodexClientVersion {
+package enum CodexClientVersion {
   package static let embeddedCodexURL = URL(
     fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex",
     isDirectory: false
@@ -53,7 +53,7 @@ package enum SoaCodexClientVersion {
     func version(of executableURL: URL) async throws -> String {
       let key = executableURL.path
       if let version = resolved[key] { return version }
-      let version = try await SoaCodexClientVersion.probe(executableURL)
+      let version = try await CodexClientVersion.probe(executableURL)
       resolved[key] = version
       return version
     }
@@ -146,7 +146,7 @@ package enum SoaCodexClientVersion {
     ProviderFailure(
       code: .authenticationFailed,
       message:
-        "Soa Codex client version is unavailable; provide version.json beside auth.json or install ChatGPT"
+        "Codex client version is unavailable; provide version.json beside auth.json or install ChatGPT"
     )
   }
 }

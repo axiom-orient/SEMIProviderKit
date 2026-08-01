@@ -1,109 +1,42 @@
-# SEMIProviderKit Completion Report
+# Completion Report
 
-## 제품 상태
+## Scope
 
-macOS 26 전용 Provider 실행 package의 account lifecycle, direct model turn,
-streaming, retry·cancel·shutdown, credential recovery와 OAuth 경계는 구현·검증됐다.
-공개된 버전은 `0.2.0`이다. GitHub Actions와 GitHub CI는 사용하지 않는다. 로컬 clean
-extraction을 통과한 exact commit만 새 release로 게시한다.
+SEMIProviderKit은 macOS 26에서 선택된 provider·account·model로 한 번의 model turn을
+실행하는 Swift package다. account lifecycle, direct streaming, retry, cancellation,
+shutdown, credential recovery와 OAuth boundary를 소유한다. Agent orchestration, UI,
+tool 실행 권위, cross-provider fallback, durable run state는 호출자 제품의 책임이다.
 
-ProviderKit이 소유하지 않는 Agent orchestration, tool 실행 권위, UI, durable run
-저장은 의도적으로 포함하지 않는다. 입력·출력·산출물 소유권은
-`Docs/INTERFACE_CONTRACT.md`에 고정했다.
+현재 subscription provider의 공개 ID와 protocol family는 각각 `codex`와
+`codex_responses`다. compatibility wrapper는 제공하지 않는다.
 
-## Canonical source와 release identity
+## Current Candidate
 
-- canonical source: `https://github.com/axiom-orient/SEMIProviderKit`
-- Git branch: `main`
-- published commit: `d5320ee964a7ca164048deacda7107da115ec848`
-- published release tag: `0.2.0`
-- previous release tag: `0.1.0` (`17529125600f7156b3fda16497354562b2296887`)
-- GitHub Release: `0.2.0` (2026-07-31 published)
-- release 원칙: clean working tree의 검증된 commit만 tag하고 해당 commit에서 archive 생성
+- Codex credential file 해석은 `CodexCredentialResolver`가 소유하고, Responses wire
+  codec은 `OpenAIResponsesAdapter`가 소유한다.
+- OpenAI·Gemini의 server-side continuation은 명시적 data collection·retention opt-in이
+  있을 때만 저장과 재사용을 허용한다. Codex subscription endpoint는 해당 capability를
+  제공하지 않아 fail-closed한다.
+- credential material의 description/debug description은 경로와 secret을 노출하지 않는다.
+- OAuth callback 화면과 OpenRouter application title은 `SEMI` 이름만 사용한다.
 
-Git tag와 GitHub Release가 고정된 source identity를 제공한다. 이전의 수동 source
-identifier와 repository-internal checksum 계층은 Git tree와 중복되어 제거했다.
+## Verification Record
 
-## 주요 수정 사항
+이 문서는 current candidate에 대해 실제로 실행한 결과만 기록한다. 상세 gate와 release
+판정은 [RELEASE_READINESS.md](RELEASE_READINESS.md)를 따른다.
 
-- 루트 문서를 짧은 진입점으로 갱신하고 architecture, interface contract, functional
-  matrix, completion evidence를 `Docs/`로 모았다.
-- 입력은 immutable request와 caller-owned store, 출력은 bounded single-consumer event
-  stream, 저장 artifact는 caller-owned라는 계약을 명시했다.
-- 저장 기술을 뜻하는 `ProviderCredentialStore` 경계와 권한·영구 저장 없이 바로 쓸 수
-  있는 actor 기반 `InMemoryProviderCredentialStore`를 제공한다.
-- account revoke가 모든 execution을 scan하지 않도록 account→execution 역색인을
-  추가했고, 다른 계정의 실행을 건드리지 않는 회귀를 고정했다.
-- execution actor 안에서만 쓰는 mutable stream decoder의 허위 `Sendable` 계약과
-  `@unchecked Sendable`을 제거했다.
-- macOS 26 밖의 FoundationNetworking, Glibc, portable SHA-256, AppKit/Network 부재용
-  fallback과 해당 조건부 테스트를 제거했다. Security 사용은 PKCE CSPRNG로 제한된다.
-- 성장 입력의 O(n²) scan을 허용하지 않는 cursor, direct lookup, amortized mailbox
-  compaction과 모든 input bound를 architecture 문서에 추적했다.
-- `ProviderTurnRequest.toolChoice`의 모든 공개 정책이 Codable 왕복에서 보존되도록
-  구현과 회귀를 완성했다.
-- Soa embedded Codex version probe를 async 경계로 옮기고 5초 timeout, 호출자
-  cancellation, process cleanup과 성공 결과 memoization을 구현했다.
-- SwiftPM·Xcode 생성물, sanitizer·coverage 결과, IDE 개인 상태, macOS metadata,
-  로그·임시·로컬 환경 파일을 `.gitignore`에서 배제했다.
+- 2026-08-01: warnings-as-errors debug·release build/test, TSAN, ASAN, format, source
+  boundary 검사 통과 (각 test suite 90개).
+- 2026-08-01: 공개 SwiftPM 소비자에서 Codex 등록·catalog·text·structured output·tool
+  call·즉시 cancel·revoke와 missing-credential compensation을 실제 계정으로 통과.
+- 2026-08-01: Codex continuation은 실제 endpoint의 거부를 재현했고, 수정 뒤 network 전
+  `capabilityMismatch` 차단을 통과.
 
-## 실행한 검증과 실제 결과
+## Residual External Scope
 
-- warnings-as-errors debug build/test: 89/89 통과
-- warnings-as-errors release build/test: 89/89 통과
-- Thread Sanitizer: 89/89 통과, race 보고 없음
-- Address Sanitizer: 89/89 통과
-- `swift-format lint -r -s Sources Tests Package.swift`: 위반 없음
-- product·target·import·source boundary verifier: 통과
-- public symbol graph: 새 credential store 이름과 initializer label 존재, 제거한 공개
-  이름 부재
-- SwiftPM API 진단: `0.1.0` 대비 공개 credential 계약 2개와 package-scoped
-  initializer·decoder 계약을 합친 예상된 breaking change 10개 확인
-- 독립 SwiftPM release consumer: public `ProviderCredentialStore`,
-  `InMemoryProviderCredentialStore`, `ProviderRuntime` compile·run 통과
-- 실제 process-lifetime store와 Soa 경계:
-  - missing auth file은 `authentication_failed` 뒤 staged credential 보상 삭제
-  - 실제 auth file로 등록, model 8개 조회, `gpt-5.6-terra` text turn 완료
-  - revoke 뒤 같은 account 실행은 `account_unavailable`
-- sibling ASA current source:
-  - 중복 credential wrapper를 제거하고 public in-memory store를 직접 사용
-  - warnings-as-errors release build, XCTest 100/100, Swift Testing 2/2 통과
-  - actual provider status와 read-only analyzed flow(`assurance=reviewed`) 통과
-- 저장소의 자동 workflow를 제거했고 로컬 검증 결과만 release gate로 사용한다.
-
-## Clean extraction 검증
-
-release commit source만 새 임시 디렉터리로 복사하고 기존 `.build`와 작업 디렉터리
-밖의 별도 scratch에서 architecture boundary와 warnings-as-errors debug·release test
-89/89을 통과했다. 같은 commit의 `git archive`를 다시 확인했고, 게시 뒤 GitHub
-Release에서 내려받은 source archive의 SHA-256도 일치했다.
-
-## 플랫폼 제약으로 실행하지 못한 항목
-
-- OpenAI, Anthropic, Gemini, OpenRouter와 API-key Provider의 실제 계정별 live
-  qualification은 credential이 없어 실행하지 못했다.
-- 실제 OpenRouter browser 승인과 authorization-code 교환은 실행하지 못했다.
-- `swift-tools-version: 6.2`는 유지하지만 Swift 6.2 도구체인은 별도로 실행하지
-  않았다.
-- 첫 live harness가 임의의 catalog 첫 모델과 64-token 제한으로 HTTP 400을 받았다.
-  기존 live-qualified 모델과 제품 기본 output 계약으로 교정한 뒤 통과했으므로
-  product failure가 아니라 harness failure로 분류했다.
-
-## 알려진 잔여 위험
-
-- Soa private endpoint와 local auth schema는 안정된 공개 API가 아니다.
-- API-key Provider의 모델별 tools, structured output, reasoning 허용 범위는 live
-  qualification 전에는 fixture와 Provider 문서 수준이다.
-- caller가 주입하는 `ProviderCredentialStore`의 내구성·보안은 package 밖의 책임이며
-  실제 제품 store는 동일 contract로 별도 검증해야 한다.
-- `InMemoryProviderCredentialStore`는 의도적으로 process 종료 시 credential을
-  잃는다.
-- credential boundary의 공개 이름이 변경됐으므로 기존 `0.1.0` consumer는 `0.2.0`
-  채택 시 source update가 필요하다. 호환 wrapper는 두지 않는다.
-- transport backpressure는 무한 buffering 대신 명시적 terminal failure를 선택한다.
-- 관리된 `version.json`이 없고 embedded Codex가 응답하지 않으면 최초 turn의 terminal
-  공개가 최대 5초 늦어질 수 있다.
-
-현재 접근 가능한 로컬 환경에서 저장소 코드로 해결할 수 있는 알려진 핵심 결함은 남아
-있지 않다. 실제 Provider별 추가 qualification은 지속 과제다. `0.2.0`은 로컬 검증을
-통과한 exact commit과 tag/archive의 동일성을 확인한 뒤 게시됐다.
+- Codex continuation은 실제 endpoint의 `invalid_request` 관찰에 따라 unsupported로
+  분류했다. package는 이를 network 전 `capabilityMismatch`로 차단한다.
+- OpenAI API key, Anthropic, Gemini, OpenRouter와 다른 API-key provider의 live
+  qualification은 account·model별로 독립적이다.
+- caller가 제공하는 durable `ProviderCredentialStore`의 persistence·security는 package
+  밖의 책임이다.
