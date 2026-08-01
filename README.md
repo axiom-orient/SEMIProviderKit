@@ -19,6 +19,10 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 
 ## Integration
 
+배포 integration에는 GitHub Releases의 검증된 tag를 사용한다. 현재 source의
+`codex` API를 쓰는 배포본은 해당 계약을 명시한 `0.3.0` release tag를 선택해야 한다.
+아직 tag가 없는 source candidate는 다음처럼 local dependency로 검증한다.
+
 ```swift
 // Package.swift
 .package(path: "../SEMIProviderKit")
@@ -56,6 +60,12 @@ credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하�
 wrapper를 제공하지 않으며, 배포 integration은 검증된 tag를 사용하고 개발 중인 source는
 local package dependency로 연결한다.
 
+이전 `soa` source에서 전환하는 호출자는 저장된 provider selection과 source를 함께
+갱신해야 한다. `BuiltInProviderID.soa`는 `BuiltInProviderID.codex`로,
+`ProviderProtocolFamily.soaResponses`는 `.codexResponses`로 바뀌었다. 이전 이름의
+compatibility wrapper는 없으므로, `0.3.0`을 선택하기 전에 호출자 source와 durable
+설정의 `"soa"` 값을 `"codex"`로 migration해야 한다.
+
 ## Repository
 
 | 경로 | 내용 |
@@ -73,13 +83,19 @@ local package dependency로 연결한다.
 
 ```bash
 swift build -Xswiftc -warnings-as-errors
+swift build -c release -Xswiftc -warnings-as-errors
 swift test --parallel -Xswiftc -warnings-as-errors
+swift test --sanitize=thread -Xswiftc -warnings-as-errors
+swift test --sanitize=address -Xswiftc -warnings-as-errors
+swift format lint --recursive Sources Tests
 python3 Scripts/verify-providerkit-boundaries.py
 ```
 
 Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사용하지
 않으며, 배포는 로컬에서 검증한 clean working tree의 commit에 semantic version tag를
-붙인다. archive가 필요하면 해당 commit에서 생성한다. build cache, Xcode·IDE 개인
+붙인다. release candidate는 해당 exact commit을 `git archive`로 새 directory에 추출해
+동일한 build·test·boundary 검사를 통과해야 한다. archive가 필요하면 해당 commit에서
+생성한다. build cache, Xcode·IDE 개인
 상태, sanitizer·coverage 결과, 로그와 로컬 환경 파일은 `.gitignore`로 저장소에서
 배제한다. `Package.resolved`는 향후 생성되면 dependency 변경을 검토할 수 있도록
 추적한다.

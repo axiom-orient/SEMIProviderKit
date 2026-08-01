@@ -12,6 +12,10 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
 
 ## Current Candidate
 
+- 다음 release candidate version은 `0.3.0`이다.
+- subscription provider의 공개 ID와 protocol family는 각각 `codex`와
+  `codex_responses`다. 이전 `soa`와 `soa_responses` compatibility wrapper는 없다.
+  따라서 호출자는 source와 저장된 selection을 함께 migration해야 한다.
 - Codex credential file 해석은 `CodexCredentialResolver`가 소유하고, Responses wire
   codec은 `OpenAIResponsesAdapter`가 소유한다.
 - OpenAI·Gemini의 server-side continuation은 명시적 data collection·retention opt-in이
@@ -26,7 +30,10 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
 판정은 [RELEASE_READINESS.md](RELEASE_READINESS.md)를 따른다.
 
 - 2026-08-01: warnings-as-errors debug·release build/test, TSAN, ASAN, format, source
-  boundary 검사 통과 (각 test suite 90개).
+  boundary 검사 통과 (3개 suite, 총 91개 test).
+- 2026-08-01: 새 `git archive` 추출본에서 warnings-as-errors debug·release build/test와
+  source boundary 검사를 통과했다 (3개 suite, 총 91개 test). 별도 SwiftPM consumer가 세
+  public product를 import·build·실행했다.
 - 2026-08-01: 공개 SwiftPM 소비자에서 Codex 등록·catalog·text·structured output·tool
   call·즉시 cancel·revoke와 missing-credential compensation을 실제 계정으로 통과.
 - 2026-08-01: Codex continuation은 실제 endpoint의 거부를 재현했고, 수정 뒤 network 전
@@ -40,3 +47,9 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
   qualification은 account·model별로 독립적이다.
 - caller가 제공하는 durable `ProviderCredentialStore`의 persistence·security는 package
   밖의 책임이다.
+
+## Release Boundary
+
+이 문서는 source의 검증 기록이며 release identity가 아니다. 게시 전에는 version을
+결정하고, clean working tree의 exact commit을 고정한 뒤 새 archive에서 검증을 다시
+실행해야 한다. 이후 tag·push·GitHub Release 게시에는 별도의 명시적 승인이 필요하다.
