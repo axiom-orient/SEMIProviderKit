@@ -43,6 +43,9 @@ struct ProviderRuntimeTests {
           BuiltInProviderID.zai,
           BuiltInProviderID.miniMax,
         ]))
+    let codex = try #require(descriptors.first { $0.id == BuiltInProviderID.codex })
+    #expect(codex.displayName == "Codex (ChatGPT subscription)")
+    #expect(codex.protocolFamily == .codexResponses)
   }
 
   @Test("Public in-memory credential store provides an ephemeral account lifecycle")
@@ -791,6 +794,64 @@ struct ProviderRuntimeTests {
       )
     )
     #expect(completionContinuation(codexCompletion) == nil)
+  }
+
+  @Test("Runtime rejects Codex continuation before opening the provider transport")
+  func codexContinuationFailsBeforeWire() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("providerkit-codex-runtime-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let auth = directory.appendingPathComponent("auth.json")
+    try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
+    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
+      to: directory.appendingPathComponent("version.json")
+    )
+
+    let account = try ProviderAccountID("codex-account")
+    let continuation = try ProviderContinuation(
+      providerID: BuiltInProviderID.codex,
+      accountID: account,
+      value: "response-1"
+    )
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.codex,
+      accountID: account,
+      continuation: continuation
+    )
+    let lease = ProviderCredentialLease(
+      record: ProviderCredentialRecord(
+        reference: try ProviderCredentialReference("codex-runtime-ref"),
+        accountID: account,
+        providerID: BuiltInProviderID.codex,
+        label: "Codex",
+        source: .externalAuthFileReference,
+        state: .active,
+        endpoint: nil,
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 1)
+      ),
+      material: try ProviderCredentialMaterial(externalAuthFilePath: auth.path)
+    )
+    let store = try TestCredentialStore(active: [lease])
+    let transport = ScriptedTransport(scripts: [.json(status: 200, body: #"{}"#)])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+
+    var terminals: [ProviderTerminal] = []
+    for await event in await runtime.execute(request) {
+      if case .terminal(let terminal) = event { terminals.append(terminal) }
+    }
+    await runtime.shutdown()
+    guard terminals.count == 1, case .failed(let failure) = terminals[0] else {
+      Issue.record("Codex continuation did not produce one terminal failure")
+      return
+    }
+    #expect(failure.code == .capabilityMismatch)
+    #expect(await transport.requestCount() == 0)
   }
 
   @Test("Provider decoders normalize native text, tools, usage, and completion")
