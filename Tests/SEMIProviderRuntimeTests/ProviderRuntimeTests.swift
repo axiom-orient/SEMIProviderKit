@@ -420,6 +420,20 @@ struct ProviderRuntimeTests {
   func outputTokenLimitEncoding() async throws {
     let constraints = try ProviderRequestConstraints(maximumOutputTokens: 12_345)
 
+    let codexRequest = try makeRequest(
+      providerID: BuiltInProviderID.codex,
+      constraints: constraints
+    )
+    await expectCapabilityMismatch {
+      _ = try await OpenAIResponsesAdapter(kind: .codex).makeExecutionRequest(
+        codexRequest,
+        credential: activeLease(
+          accountID: codexRequest.selection.accountID,
+          providerID: BuiltInProviderID.codex
+        )
+      )
+    }
+
     let responsesRequest = try makeRequest(
       providerID: BuiltInProviderID.openAI,
       constraints: constraints
@@ -484,6 +498,77 @@ struct ProviderRuntimeTests {
       try ProviderJSONValue.decode(from: geminiBody)
         .value(at: "generation_config", "max_output_tokens")?.integerValue == 12_345
     )
+  }
+
+  @Test("Codex repeated turns use caller-owned history without a continuation")
+  func codexRepeatedTurnHistory() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("providerkit-codex-history-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let auth = directory.appendingPathComponent("auth.json")
+    try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
+    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
+      to: directory.appendingPathComponent("version.json")
+    )
+
+    let accountID = try ProviderAccountID("conversation-account")
+    let request = try ProviderTurnRequest(
+      id: ProviderRequestID("conversation-turn-2"),
+      selection: ProviderSelection(
+        providerID: BuiltInProviderID.codex,
+        accountID: accountID,
+        modelID: ProviderModelID("gpt-5.6-luna")
+      ),
+      messages: [
+        try ProviderMessage(role: .developer, text: "Answer concisely."),
+        try ProviderMessage(role: .user, text: "Remember luna-memory-4831."),
+        try ProviderMessage(role: .assistant, text: "luna-memory-4831"),
+        try ProviderMessage(role: .user, text: "What token did you remember?"),
+      ],
+      constraints: ProviderRequestConstraints()
+    )
+    let credential = ProviderCredentialLease(
+      record: ProviderCredentialRecord(
+        reference: try ProviderCredentialReference("codex-history-ref"),
+        accountID: accountID,
+        providerID: BuiltInProviderID.codex,
+        label: "Codex",
+        source: .externalAuthFileReference,
+        state: .active,
+        endpoint: nil,
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 1)
+      ),
+      material: try ProviderCredentialMaterial(externalAuthFilePath: auth.path)
+    )
+
+    let wire = try await OpenAIResponsesAdapter(kind: .codex).makeExecutionRequest(
+      request,
+      credential: credential
+    )
+    let body = try ProviderJSONValue.decode(from: try #require(wire.urlRequest.httpBody))
+    let input = try #require(body["input"]?.arrayValue)
+    #expect(body["instructions"]?.stringValue == "Answer concisely.")
+    #expect(body["previous_response_id"] == nil)
+    #expect(input.count == 3)
+    #expect(input[0]["role"]?.stringValue == "user")
+    #expect(input[1]["role"]?.stringValue == "assistant")
+    #expect(input[2]["role"]?.stringValue == "user")
+
+    let noInstructionsRequest = try makeRequest(
+      providerID: BuiltInProviderID.codex,
+      accountID: accountID,
+      requestID: "conversation-turn-3"
+    )
+    let noInstructionsWire = try await OpenAIResponsesAdapter(kind: .codex).makeExecutionRequest(
+      noInstructionsRequest,
+      credential: credential
+    )
+    let noInstructionsBody = try ProviderJSONValue.decode(
+      from: try #require(noInstructionsWire.urlRequest.httpBody)
+    )
+    #expect(noInstructionsBody["instructions"] == nil)
   }
 
   @Test("Reasoning policy is either encoded on the wire or rejected, never dropped")

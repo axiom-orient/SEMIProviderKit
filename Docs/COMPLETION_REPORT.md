@@ -8,14 +8,12 @@ shutdown, credential recovery와 OAuth boundary를 소유한다. Agent orchestra
 tool 실행 권위, cross-provider fallback, durable run state는 호출자 제품의 책임이다.
 
 현재 subscription provider의 공개 ID와 protocol family는 각각 `codex`와
-`codex_responses`다. compatibility wrapper는 제공하지 않는다.
+`codex_responses`다.
 
 ## Current Candidate
 
-- 다음 release candidate version은 `0.3.0`이다.
 - subscription provider의 공개 ID와 protocol family는 각각 `codex`와
-  `codex_responses`다. 이전 `soa`와 `soa_responses` compatibility wrapper는 없다.
-  따라서 호출자는 source와 저장된 selection을 함께 migration해야 한다.
+  `codex_responses`다.
 - Codex credential file 해석은 `CodexCredentialResolver`가 소유하고, Responses wire
   codec은 `OpenAIResponsesAdapter`가 소유한다.
 - OpenAI·Gemini의 server-side continuation은 명시적 data collection·retention opt-in이
@@ -30,7 +28,7 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
 판정은 [RELEASE_READINESS.md](RELEASE_READINESS.md)를 따른다.
 
 - 2026-08-01: warnings-as-errors debug·release build/test, TSAN, ASAN, format, source
-  boundary 검사 통과 (3개 suite, 총 91개 test).
+  boundary 검사 통과 (3개 suite, 총 92개 test).
 - 2026-08-01: 새 `git archive` 추출본에서 warnings-as-errors debug·release build/test와
   source boundary 검사를 통과했다 (3개 suite, 총 91개 test). 별도 SwiftPM consumer가 세
   public product를 import·build·실행했다.
@@ -38,6 +36,13 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
   call·즉시 cancel·revoke와 missing-credential compensation을 실제 계정으로 통과.
 - 2026-08-01: Codex continuation은 실제 endpoint의 거부를 재현했고, 수정 뒤 network 전
   `capabilityMismatch` 차단을 통과.
+- 2026-08-01: Luna subscription에서 caller-owned history를 포함한 Codex turn 3회를
+  연속 완료했다. `maximumOutputTokens`는 endpoint의 HTTP 400 재현 뒤 network 전
+  `capabilityMismatch`로 명시 차단했다.
+- 2026-08-02: 임시 외부 SwiftPM consumer가 existing Codex auth reference로
+  `register → models(8) → exact text streaming turn → revoke`를 통과했다. 존재하지 않는
+  auth reference는 terminal failure와 빈 `accounts()`로 staged credential 보상 제거를
+  확인했다. credential 내용과 응답 본문은 출력하지 않았다.
 
 ## Residual External Scope
 

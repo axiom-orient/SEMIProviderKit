@@ -38,6 +38,12 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
         message: "Codex Responses continuation is not qualified"
       )
     }
+    guard kind != .codex || request.constraints.maximumOutputTokens == nil else {
+      throw ProviderFailure(
+        code: .capabilityMismatch,
+        message: "Codex Responses maximum output tokens are not qualified"
+      )
+    }
     let endpoint: URL
     let headers: [String: String]
     switch kind {
@@ -217,7 +223,9 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
     if let maximumOutputTokens = request.constraints.maximumOutputTokens {
       body["max_output_tokens"] = .number(Double(maximumOutputTokens))
     }
-    if kind == .codex { body["instructions"] = .string(instructions.joined(separator: "\n\n")) }
+    if kind == .codex, !instructions.isEmpty {
+      body["instructions"] = .string(instructions.joined(separator: "\n\n"))
+    }
     if !request.tools.isEmpty {
       body["tools"] = .array(
         request.tools.map { tool in

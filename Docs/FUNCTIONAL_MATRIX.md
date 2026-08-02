@@ -39,6 +39,7 @@
 | F-33 | JSON 변환 축소 | ProviderKit | bounded `ProviderJSONValue` | deterministic round-trip tests | PASS |
 | F-34 | 요청별 immutable selection·continuation policy | ProviderKit | `ProviderTurnRequest.selection`, explicit server-side retention opt-in | active request/retry/continuation wire tests | PASS |
 | F-35 | runtime shutdown/drain | ProviderKit; 제품 lifecycle은 호출자 제품 | lifecycle admission fence, child join | concurrent shutdown tests | PASS |
+| F-36 | caller-owned 반복 대화 | ProviderKit + 호출자 | immutable history를 포함한 연속 `execute`; durable state 없음 | Codex history wire regression, Luna 3-turn live flow | PASS |
 
 ## 구조적 불변식
 

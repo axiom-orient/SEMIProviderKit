@@ -28,6 +28,13 @@ dialect는 같은 이유로 fail-closed 한다. Codex subscription endpoint는 �
 continuation을 qualified capability로 제공하지 않으므로 `ProviderContinuation`을
 `capabilityMismatch`로 거부하고 항상 stateless request를 보낸다.
 
+반복 대화는 caller-owned `messages`로 표현한다. 호출자는 완료된 assistant text를
+`.assistant` message로 history에 넣고 새 `.user` message와 새 request ID로 다음
+`execute`를 호출한다. history는 `ProviderTurnRequest`의 기존 상한 안에서만 허용되며,
+package는 이를 보존하거나 provider continuation으로 바꾸지 않는다. 현재 Codex
+subscription endpoint는 `maximumOutputTokens`를 qualified parameter로 제공하지 않아,
+이를 설정한 request를 network 전 `capabilityMismatch`로 거부한다.
+
 Credential은 Runtime 생성 시 주입한 `ProviderCredentialStore`를 통해서만 읽는다.
 `InMemoryProviderCredentialStore`를 쓰면 API key와 OAuth-derived key는 process
 lifetime에만 존재한다. durable 보존이 필요하면 실제 secret 저장은 호출자 책임이다.

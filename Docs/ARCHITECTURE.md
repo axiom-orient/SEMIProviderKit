@@ -3,8 +3,9 @@
 ## Product boundary
 
 SEMIProviderKit의 단위는 “선택된 Provider·계정·모델로 실행하는 한 번의 모델 turn”이다.
-상위 제품의 planning, work/review route, tool 승인·실행, UI, durable run 복구는
-포함하지 않는다.
+반복 대화는 호출자가 assistant 응답을 history에 추가해 같은 계정·모델로 다음 turn을
+요청하는 방식이며, package는 durable conversation state를 보관하지 않는다. 상위 제품의
+planning, work/review route, tool 승인·실행, UI, durable run 복구는 포함하지 않는다.
 
 ```text
                   ┌─────────────────────┐
@@ -56,7 +57,7 @@ Observation/TCA action으로 투영한다. UI 종속 타입을 Core에 넣지 �
 ## Execution flow
 
 ```text
-validated request
+caller-owned history + validated request
 → credential lease and account identity check
 → provider-native wire request
 → bounded HTTP/SSE transport

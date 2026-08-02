@@ -1,7 +1,8 @@
 # SEMIProviderKit
 
-macOS 26에서 Provider·계정·모델을 선택해 한 번의 모델 turn을 직접 실행하는
-Swift 6 package다. 상태 전이는 pure reducer, 공유 가변 상태는 actor, 외부 작업은
+macOS 26에서 Provider·계정·모델을 선택해 모델 turn을 직접 실행하는 Swift 6 package다.
+반복 대화는 호출자가 이전 assistant 응답을 포함한 history를 다음 immutable request에
+다시 넣어 실행한다. 상태 전이는 pure reducer, 공유 가변 상태는 actor, 외부 작업은
 명시적 effect와 protocol 경계로 분리한다.
 
 Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Agent state는
@@ -19,9 +20,8 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 
 ## Integration
 
-배포 integration에는 GitHub Releases의 검증된 tag를 사용한다. 현재 source의
-`codex` API를 쓰는 배포본은 해당 계약을 명시한 `0.3.0` release tag를 선택해야 한다.
-아직 tag가 없는 source candidate는 다음처럼 local dependency로 검증한다.
+배포 integration에는 검증된 semantic-version tag를 사용한다. 개발 중인 source는
+다음처럼 local dependency로 검증한다.
 
 ```swift
 // Package.swift
@@ -56,15 +56,13 @@ credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하�
 사용할 때는 `dataCollection: .allow`와 `requiresZeroDataRetention: false`를 명시해야
 한다.
 
-기본 subscription provider의 공개 ID는 `codex`다. 현재 source는 compatibility
-wrapper를 제공하지 않으며, 배포 integration은 검증된 tag를 사용하고 개발 중인 source는
-local package dependency로 연결한다.
+기본 subscription provider의 공개 ID는 `codex`다.
 
-이전 `soa` source에서 전환하는 호출자는 저장된 provider selection과 source를 함께
-갱신해야 한다. `BuiltInProviderID.soa`는 `BuiltInProviderID.codex`로,
-`ProviderProtocolFamily.soaResponses`는 `.codexResponses`로 바뀌었다. 이전 이름의
-compatibility wrapper는 없으므로, `0.3.0`을 선택하기 전에 호출자 source와 durable
-설정의 `"soa"` 값을 `"codex"`로 migration해야 한다.
+Codex의 반복 대화는 server-side `ProviderContinuation`이 아니라 caller-owned history를
+사용한다. 매 turn의 terminal `.textDelta`를 모아 `.assistant` message로 추가하고, 다음
+`.user` message와 함께 새 request ID로 `execute`한다. Codex가 지원하지 않는
+`maximumOutputTokens`와 `ProviderContinuation`은 network 전 `capabilityMismatch`로
+거부된다.
 
 ## Repository
 
