@@ -1622,6 +1622,52 @@ struct ProviderRuntimeTests {
     await runtime.shutdown()
   }
 
+  @Test("Runtime streams displayable reasoning separately from answer text")
+  func runtimeReasoningStreaming() async throws {
+    let account = try ProviderAccountID("account-1")
+    let store = try TestCredentialStore(active: [
+      activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
+    ])
+    let transport = ScriptedTransport(scripts: [
+      .sse(
+        status: 200,
+        events: [
+          #"data: {"id":"resp-reasoning","choices":[{"delta":{"reasoning_content":"consider"},"finish_reason":null}]}"#
+            + "\n\n",
+          #"data: {"id":"resp-reasoning","choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}"#
+            + "\n\n",
+          "data: [DONE]\n\n",
+        ]
+      )
+    ])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.openRouter,
+      accountID: account
+    )
+    let stream = await runtime.execute(request)
+    var events: [ProviderTurnEvent] = []
+    for await event in stream { events.append(event) }
+
+    #expect(
+      events.compactMap { event in
+        guard case .reasoningDelta(let value) = event else { return nil }
+        return value
+      } == ["consider"])
+    #expect(
+      events.compactMap { event in
+        guard case .textDelta(let value) = event else { return nil }
+        return value
+      } == ["answer"])
+    #expect(events.filter { if case .terminal = $0 { true } else { false } }.count == 1)
+    #expect(await transport.requestCount() == 1)
+    await runtime.shutdown()
+  }
+
   @Test("URLSession transport fails cleanly when cancellation wins before start")
   func urlSessionPreStartCancellation() async throws {
     let gate = AsyncGate()
@@ -1784,6 +1830,8 @@ struct ProviderRuntimeTests {
     for await event in await runtime.execute(request) {
       switch event {
       case .textDelta(let delta): text += delta
+      case .reasoningDelta:
+        break
       case .terminal(let value): terminal = value
       case .started, .toolCall: break
       }
@@ -2062,6 +2110,8 @@ struct ProviderRuntimeTests {
     for await event in await runtime.execute(request) {
       switch event {
       case .textDelta(let delta): text += delta
+      case .reasoningDelta:
+        break
       case .terminal(let value): terminal = value
       case .started, .toolCall: break
       }
@@ -2151,6 +2201,8 @@ struct ProviderRuntimeTests {
       for await event in stream {
         switch event {
         case .textDelta(let delta): text += delta
+        case .reasoningDelta:
+          break
         case .terminal(let value): terminal = value
         case .started, .toolCall: break
         }
@@ -2564,7 +2616,7 @@ struct ProviderRuntimeTests {
           id: nil,
           retryMilliseconds: nil
         )
-      ).isEmpty)
+      ) == [.reasoningDelta("summary")])
     #expect(
       try thinkingDecoder.consume(
         .init(
@@ -2667,7 +2719,7 @@ struct ProviderRuntimeTests {
     #expect(try decoder.finish().isEmpty)
   }
 
-  @Test("Gemini isolates thoughts and preserves initial function arguments")
+  @Test("Gemini exposes displayable thought summaries and preserves initial function arguments")
   func geminiThoughtAndInitialFunctionArguments() throws {
     let request = try makeRequest(providerID: BuiltInProviderID.gemini)
     let decoder = try GeminiInteractionsAdapter().makeDecoder(for: request)
@@ -2680,6 +2732,15 @@ struct ProviderRuntimeTests {
           retryMilliseconds: nil
         )
       ).isEmpty)
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "step.delta",
+          data:
+            #"{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"summary"}}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("summary")])
     #expect(
       try decoder.consume(
         .init(
@@ -2995,6 +3056,14 @@ struct ProviderRuntimeTests {
           id: nil,
           retryMilliseconds: nil
         )) == [.textDelta("ok")])
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "response.reasoning_summary_text.delta",
+          data: #"{"type":"response.reasoning_summary_text.delta","delta":"plan"}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("plan")])
     let done = try decoder.consume(
       .init(
         event: "response.completed",
@@ -3019,6 +3088,23 @@ struct ProviderRuntimeTests {
           retryMilliseconds: nil
         )) == [.textDelta("chat")])
     #expect(
+      try decoder.consume(
+        .init(
+          event: nil,
+          data: #"{"id":"r2","choices":[{"delta":{"reasoning_content":"consider"}}]}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("consider")])
+    #expect(
+      try decoder.consume(
+        .init(
+          event: nil,
+          data:
+            #"{"id":"r2","choices":[{"delta":{"reasoning_content":"first","reasoning":"duplicate"}}]}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("first")])
+    #expect(
       try decoder.consume(.init(event: nil, data: "[DONE]", id: nil, retryMilliseconds: nil)).count
         == 1)
     #expect(try decoder.finish().isEmpty)
@@ -3031,6 +3117,29 @@ struct ProviderRuntimeTests {
       .init(
         event: "message_start",
         data: #"{"type":"message_start","message":{"id":"m1","usage":{"input_tokens":1}}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    _ = try decoder.consume(
+      .init(
+        event: "content_block_start",
+        data: #"{"type":"content_block_start","index":1,"content_block":{"type":"thinking"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "content_block_delta",
+          data:
+            #"{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"reason"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("reason")])
+    _ = try decoder.consume(
+      .init(
+        event: "content_block_stop",
+        data: #"{"type":"content_block_stop","index":1}"#,
         id: nil,
         retryMilliseconds: nil
       ))
@@ -3113,6 +3222,29 @@ struct ProviderRuntimeTests {
           retryMilliseconds: nil
         )
       ).count == 1)
+    _ = try decoder.consume(
+      .init(
+        event: "step.start",
+        data: #"{"event_type":"step.start","index":1,"step":{"type":"thought"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "step.delta",
+          data:
+            #"{"event_type":"step.delta","index":1,"delta":{"type":"thought_summary","content":{"type":"text","text":"consider"}}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )) == [.reasoningDelta("consider")])
+    _ = try decoder.consume(
+      .init(
+        event: "step.stop",
+        data: #"{"event_type":"step.stop","index":1}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
     #expect(
       try decoder.consume(
         .init(

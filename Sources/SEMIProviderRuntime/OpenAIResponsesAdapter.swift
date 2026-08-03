@@ -360,6 +360,9 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     case "response.output_text.delta":
       guard let delta = root["delta"]?.stringValue, !delta.isEmpty else { return [] }
       return [.textDelta(delta)]
+    case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+      guard let delta = root["delta"]?.stringValue, !delta.isEmpty else { return [] }
+      return [.reasoningDelta(delta)]
     case "response.output_item.added":
       guard root.value(at: "item", "type")?.stringValue == "function_call" else { return [] }
       let key = try toolKey(root)

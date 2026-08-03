@@ -98,6 +98,7 @@ package struct ProviderToolArgumentAccumulator: Sendable {
 
 package enum ProviderDecodedEvent: Equatable, Sendable {
   case textDelta(String)
+  case reasoningDelta(String)
   case toolCall(ProviderToolCall)
   case completed(ProviderCompletionDraft)
 }

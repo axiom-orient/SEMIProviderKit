@@ -81,6 +81,10 @@ origin·path·query multiset·state를 모두 검증한다. authorization URL �
 
 두 event stream은 single-consumer다. 두 번째 iterator 또는 동시 `next()`는 명시적
 실패다. partial tool argument는 출력하지 않으며 완성·검증된 tool call만 공개한다.
+`ProviderTurnEvent.reasoningDelta`는 provider가 displayable이라고 명시한 텍스트 요약만
+전달한다. 일반 `.textDelta`와 순서 및 coalescing 경계가 분리되고, opaque state,
+signature, redacted thought, raw private reasoning은 이 public event로 노출하지 않는다.
+reasoning delta도 visible output이므로 이후 transport 실패는 retry 대상이 아니다.
 오류 메시지는 credential/token 패턴을 best-effort redaction하고 1,024자로 제한한다. provider가
 보낸 원격 진단 문자열일 수 있으므로 unrestricted log나 credential source로 취급하지 않는다.
 `ProviderJSONValue.number`는 IEEE-754 binary64이며 2^53을 넘는 식별자 정수는 문자열로 전달해야

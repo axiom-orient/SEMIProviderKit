@@ -8,7 +8,7 @@ package enum ProviderMailboxSendResult: Sendable {
 }
 
 package actor ProviderEventMailbox {
-  private final class TextBatch {
+  private final class DeltaBatch {
     var chunks: [String]
     var scalarCount: Int
 
@@ -29,7 +29,8 @@ package actor ProviderEventMailbox {
 
   private enum BufferedEvent {
     case event(ProviderTurnEvent)
-    case text(TextBatch)
+    case text(DeltaBatch)
+    case reasoning(DeltaBatch)
   }
 
   private let capacity: Int
@@ -60,10 +61,10 @@ package actor ProviderEventMailbox {
       return .accepted
     }
 
-    if case .textDelta(let incoming) = event,
+    if let incoming = coalescibleDelta(event),
       let lastIndex = buffer.indices.last,
       lastIndex >= head,
-      case .text(let batch) = buffer[lastIndex]
+      let batch = matchingBatch(at: lastIndex, for: event)
     {
       let incomingCount = incoming.unicodeScalars.count
       let (nextCount, overflowed) = batch.scalarCount.addingReportingOverflow(incomingCount)
@@ -73,13 +74,15 @@ package actor ProviderEventMailbox {
       }
     }
 
-    // Reserve one slot for the exactly-once terminal event. Text chunks are
-    // retained as a batch and joined only when consumed, avoiding repeated
-    // whole-string copies for token-sized deltas.
+    // Reserve one slot for the exactly-once terminal event. Text and reasoning
+    // chunks are retained as type-specific batches and joined only when
+    // consumed, avoiding repeated whole-string copies for token-sized deltas.
     guard count < capacity - 1 else { return .overflow }
     switch event {
     case .textDelta(let text):
-      buffer.append(.text(TextBatch(text, scalarCount: text.unicodeScalars.count)))
+      buffer.append(.text(DeltaBatch(text, scalarCount: text.unicodeScalars.count)))
+    case .reasoningDelta(let text):
+      buffer.append(.reasoning(DeltaBatch(text, scalarCount: text.unicodeScalars.count)))
     case .started, .toolCall:
       buffer.append(.event(event))
     case .terminal:
@@ -106,6 +109,7 @@ package actor ProviderEventMailbox {
       switch buffered {
       case .event(let value): event = value
       case .text(let batch): event = .textDelta(batch.joined())
+      case .reasoning(let batch): event = .reasoningDelta(batch.joined())
       }
       if case .terminal = event { drained = true }
       return event
@@ -129,6 +133,22 @@ package actor ProviderEventMailbox {
   )
 
   private var count: Int { buffer.count - head }
+
+  private func coalescibleDelta(_ event: ProviderTurnEvent) -> String? {
+    switch event {
+    case .textDelta(let value), .reasoningDelta(let value): return value
+    case .started, .toolCall, .terminal: return nil
+    }
+  }
+
+  private func matchingBatch(at index: Int, for event: ProviderTurnEvent) -> DeltaBatch? {
+    switch (event, buffer[index]) {
+    case (.textDelta(_), .text(let batch)), (.reasoningDelta(_), .reasoning(let batch)):
+      return batch
+    default:
+      return nil
+    }
+  }
 
   private func commitTerminal(_ event: ProviderTurnEvent) -> Bool {
     guard !terminalCommitted, !drained else { return false }

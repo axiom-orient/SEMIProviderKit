@@ -438,6 +438,41 @@ struct ProviderCoreTests {
     }
   }
 
+  @Test("Reasoning deltas are separate visible output and prevent retry")
+  func executionReasoningDeltaCommit() throws {
+    let request = try makeRequest()
+    let admitted = try ProviderExecutionReducer.reduce(
+      state: ProviderExecutionState(),
+      event: .requestAdmitted(request)
+    )
+    let metadata = try ProviderResponseMetadata(
+      requestID: request.id,
+      providerRequestID: "remote-1",
+      providerID: request.selection.providerID,
+      modelID: request.selection.modelID,
+      startedAt: Date(timeIntervalSince1970: 1)
+    )
+    let opened = try ProviderExecutionReducer.reduce(
+      state: admitted.0,
+      event: .transportOpened(metadata)
+    )
+    let reasoning = try ProviderExecutionReducer.reduce(
+      state: opened.0,
+      event: .reasoningDeltaReceived("checking sources")
+    )
+    #expect(reasoning.1 == [.publish(.reasoningDelta("checking sources"))])
+    #expect(throws: ProviderCoreError.self) {
+      try ProviderExecutionReducer.reduce(state: reasoning.0, event: .retryRequested)
+    }
+  }
+
+  @Test("Reasoning events remain public Codable stream values")
+  func reasoningDeltaCodableRoundTrip() throws {
+    let event = ProviderTurnEvent.reasoningDelta("checking sources")
+    #expect(
+      try JSONDecoder().decode(ProviderTurnEvent.self, from: JSONEncoder().encode(event)) == event)
+  }
+
   @Test("Bounded stream coalesces adjacent text")
   func boundedStreamCoalescing() async throws {
     let (stream, sink) = ProviderEventStream.make(
@@ -452,6 +487,31 @@ struct ProviderCoreTests {
     var events: [ProviderTurnEvent] = []
     while let event = await iterator.next() { events.append(event) }
     #expect(events == [.textDelta("ab"), .terminal(.cancelled)])
+  }
+
+  @Test("Bounded stream coalesces reasoning without mixing it with text")
+  func reasoningDeltaBatching() async throws {
+    let (stream, sink) = ProviderEventStream.make(
+      capacity: 5,
+      maximumCoalescedTextScalars: 32
+    )
+    #expect(await sink.send(.reasoningDelta("check ")) == .accepted)
+    #expect(await sink.send(.reasoningDelta("sources")) == .coalesced)
+    #expect(await sink.send(.textDelta("answer")) == .accepted)
+    #expect(await sink.send(.reasoningDelta("final check")) == .accepted)
+    #expect(await sink.finish(with: .cancelled))
+
+    var iterator = stream.makeAsyncIterator()
+    var events: [ProviderTurnEvent] = []
+    while let event = await iterator.next() { events.append(event) }
+    #expect(
+      events == [
+        .reasoningDelta("check sources"),
+        .textDelta("answer"),
+        .reasoningDelta("final check"),
+        .terminal(.cancelled),
+      ]
+    )
   }
 
   @Test("Token-sized text deltas are batched and joined once at consumption")

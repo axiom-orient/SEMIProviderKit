@@ -157,6 +157,9 @@ public enum ProviderTerminal: Codable, Equatable, Sendable {
 public enum ProviderTurnEvent: Codable, Equatable, Sendable {
   case started(ProviderResponseMetadata)
   case textDelta(String)
+  /// Provider-emitted, displayable reasoning text. Opaque provider state,
+  /// signatures, and redacted thinking are never exposed through this event.
+  case reasoningDelta(String)
   case toolCall(ProviderToolCall)
   case terminal(ProviderTerminal)
 }

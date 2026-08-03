@@ -310,6 +310,7 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
 
   private enum StepState {
     case modelOutput
+    case thought
     case functionCall(ToolState)
     case ignored
   }
@@ -382,6 +383,9 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
       } else if type == "model_output" {
         steps[index] = .modelOutput
         return try initialModelOutput(root.value(at: "step", "content"))
+      } else if type == "thought" {
+        steps[index] = .thought
+        return []
       } else {
         steps[index] = .ignored
         return []
@@ -396,9 +400,16 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
       if case .ignored = step { return [] }
       switch root.value(at: "delta", "type")?.stringValue {
       case "text":
-        guard case .modelOutput = step else {
+        switch step {
+        case .thought:
+          // Raw thought text is not a displayable summary. It can carry
+          // provider-private reasoning, so never surface it to callers.
+          return []
+        case .modelOutput:
+          break
+        case .functionCall, .ignored:
           throw ProviderFailure(
-            code: .malformedResponse, message: "Gemini text delta belongs to a function call")
+            code: .malformedResponse, message: "Gemini text delta belongs to a non-output step")
         }
         guard let text = root.value(at: "delta", "text")?.stringValue, !text.isEmpty else {
           return []
@@ -414,6 +425,16 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
         try tool.arguments.append(chunk)
         steps[index] = .functionCall(tool)
         return []
+      case "thought_summary":
+        guard case .thought = step else {
+          throw ProviderFailure(
+            code: .malformedResponse,
+            message: "Gemini thought summary belongs to a non-thought step")
+        }
+        guard let text = root.value(at: "delta", "content", "text")?.stringValue,
+          !text.isEmpty
+        else { return [] }
+        return [.reasoningDelta(text)]
       default:
         return []
       }

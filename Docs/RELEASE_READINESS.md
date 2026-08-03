@@ -7,6 +7,7 @@
 - documented OpenRouter PKCE URL과 loopback callback state 검증
 - Codex의 caller-owned history 반복 turn과 unqualified `maximumOutputTokens` fail-closed
   경계 추가
+- failed tool result의 의미 보존과 displayable reasoning streaming 정규화
 
 ## Public Contract
 
@@ -16,7 +17,8 @@ subscription provider의 공개 ID와 protocol family는 각각 `codex`와 `code
 
 | Gate | Required evidence | Current status |
 | --- | --- | --- |
-| local verification | warnings-as-errors debug/release build·test, TSAN·ASAN, format, boundary, public consumer | PASS (2026-08-03, clean archive / 3 suites / 98 tests) |
+| local verification | warnings-as-errors debug/release build·test, TSAN·ASAN, format, boundary | PASS (2026-08-03, current clean archive / 3 suites / 104 tests) |
+| public consumer | 세 public product import·build·실행 | PASS (2026-08-02, ephemeral SwiftPM consumer) |
 | runtime/external | Codex registration, catalog, exact text streaming response, revoke | PASS (2026-08-02, live subscription / ephemeral public SwiftPM consumer) |
 | product flow | missing-auth compensation, unqualified parameter·continuation fail-closed, account-to-terminal flow | PASS (2026-08-02, public SwiftPM consumer) |
 | documentation contract | README, Docs index, contract, matrix, release record links | PASS |
@@ -32,6 +34,9 @@ subscription provider의 공개 ID와 protocol family는 각각 `codex`와 `code
 - 2026-08-03: release candidate commit을 새 임시 directory에 `git archive`로 추출했다.
   추출본에서 warnings-as-errors debug·release build/test, TSAN, ASAN, format, source boundary
   검사를 통과했다 (3개 suite, 총 98개 test).
+- 2026-08-03: current candidate commit을 새 임시 directory에 `git archive`로 추출했다. 추출본에서
+  warnings-as-errors debug·release build/test, TSAN, ASAN, format, source boundary 검사를
+  통과했다 (3개 suite, 총 104개 test).
 
 ## Current Live Scenario Evidence
 
@@ -63,7 +68,7 @@ subscription provider의 공개 ID와 protocol family는 각각 `codex`와 `code
   `maximumOutputTokens`는 qualified parameter가 아니므로 network 전 거부한다.
 - **Behavior:** OpenRouter PKCE URL은 documented `callback_url` 형식을 사용하며, loopback
   callback의 state·origin·query를 fail-closed 검증한다.
-- **Validation:** clean archive에서 debug/release build, 98 tests, TSAN, ASAN, format,
+- **Validation:** clean archive에서 debug/release build, 104 tests, TSAN, ASAN, format,
   boundary 검사와 public SwiftPM consumer 검증을 완료한다.
 
 ## Publish Rules

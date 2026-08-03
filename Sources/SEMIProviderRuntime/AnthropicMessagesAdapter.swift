@@ -284,6 +284,7 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
 private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
   private enum BlockKind {
     case text
+    case reasoning
     case tool
     case ignored
   }
@@ -351,7 +352,10 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
       case "text":
         activeBlocks[index] = .text
         return []
-      case "thinking", "redacted_thinking", "fallback":
+      case "thinking":
+        activeBlocks[index] = .reasoning
+        return []
+      case "redacted_thinking", "fallback":
         activeBlocks[index] = .ignored
         return []
       case "tool_use":
@@ -391,6 +395,12 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
             code: .malformedResponse, message: "Messages text delta has no text")
         }
         return text.isEmpty ? [] : [.textDelta(text)]
+      case (.reasoning, "thinking_delta"):
+        guard let thinking = root.value(at: "delta", "thinking")?.stringValue else {
+          throw ProviderFailure(
+            code: .malformedResponse, message: "Messages thinking delta has no text")
+        }
+        return thinking.isEmpty ? [] : [.reasoningDelta(thinking)]
       case (.tool, "input_json_delta"):
         guard let partial = root.value(at: "delta", "partial_json")?.stringValue,
           var tool = tools[index]

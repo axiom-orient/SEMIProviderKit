@@ -500,6 +500,9 @@ package actor ProviderExecutionSession {
     case .textDelta(let value):
       try await transitionAndPublish(.textDeltaReceived(value))
       return nil
+    case .reasoningDelta(let value):
+      try await transitionAndPublish(.reasoningDeltaReceived(value))
+      return nil
     case .toolCall(let call):
       try validateProviderToolCall(call)
       try await transitionAndPublish(.toolCallCompleted(call))

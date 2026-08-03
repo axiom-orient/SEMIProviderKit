@@ -393,6 +393,17 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
       {
         output.append(.textDelta(content))
       }
+      for field in ["reasoning_content", "reasoning", "reasoning_text"] {
+        guard let rawReasoning = delta[field] else { continue }
+        if let reasoning = try optionalString(rawReasoning, field: "chat reasoning"),
+          !reasoning.isEmpty
+        {
+          output.append(.reasoningDelta(reasoning))
+        }
+        // These names are compatibility aliases. Accept exactly one to avoid
+        // duplicate public output if an upstream response includes aliases.
+        break
+      }
       let rawCalls: [ProviderJSONValue]
       if let value = delta["tool_calls"] {
         if case .null = value {

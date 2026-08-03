@@ -7,7 +7,7 @@
 | F-01 | Agent orchestration | 호출자 제품 | ProviderKit은 Agent gateway를 import하지 않음 | boundary verifier | OUTSIDE |
 | F-02 | 대화 1회 직접 응답 | ProviderKit | `ProviderRuntime.execute`, `ProviderExecutionSupervisor` | direct streaming test | PASS |
 | F-03 | plan/work/review orchestration | 호출자 제품 | ProviderKit은 1-turn만 제공 | target/import graph | OUTSIDE |
-| F-04 | 실제 text streaming | ProviderKit | HTTP/SSE decoder → `.textDelta` | fragmentation·normalization tests | PASS |
+| F-04 | 실제 text·displayable reasoning streaming | ProviderKit | HTTP/SSE decoder → `.textDelta`·`.reasoningDelta` | fragmentation·normalization·reasoning separation runtime tests | PASS |
 | F-05 | cancel·terminal exactly-once | ProviderKit | admission-ordered session start, execution reducer/session, single session registry with early ID release | immediate cancel, deadline, cleanup, reuse, shutdown, execute/shutdown interleaving tests | PASS |
 | F-06 | bounded backpressure | ProviderKit | bounded mailbox, terminal reserved slot, text batch, bounded transport body buffer | core/runtime mailbox overflow, transport backpressure tests | PASS |
 | F-07 | account readiness inspect | ProviderKit | `verificationRequired → inspect → ready`, credential contract | restart/readiness, invalid/no-op/source mismatch tests | PASS |
@@ -20,7 +20,7 @@
 | F-14 | stage별 route | 호출자 제품 | `ProviderSelection` 값만 제공 | boundary verifier | OUTSIDE |
 | F-15 | capability qualification | ProviderKit + 호출자 | descriptor/catalog capability 상태 | strict decode tests | LIVE_REQUIRED |
 | F-16 | structured output·reasoning 정책 | ProviderKit + caller | Provider별 output constraint, dialect별 reasoning 인코딩 또는 명시적 거부 | native/application-validated, reasoning policy tests | PASS |
-| F-17 | tool call 정규화·선택 | ProviderKit | bounded accumulator, completed call only, caller-owned call/result history, declared-tool allowlist | history wire round-trip, malformed/oversize/identity/tool-choice, Gemini stateless history fail-closed tests | PASS |
+| F-17 | tool call 정규화·선택 | ProviderKit | bounded accumulator, completed call only, caller-owned call/result history (실패 결과 `isError` 포함), declared-tool allowlist | history/error-result wire round-trip, malformed/oversize/identity/tool-choice, Gemini stateless history fail-closed tests | PASS |
 | F-18 | tool 실행 권위 | 호출자 제품 | 실행 API 없음 | public API/boundary inspection | OUTSIDE |
 | F-19 | usage 계측 | ProviderKit | normalized `ProviderUsage`, usage-only compatible chunk | malformed/overflow/usage-only tests | PASS |
 | F-20 | privacy/data routing | ProviderKit + 호출자 | request constraints → Provider wire | OpenRouter privacy fixture | PASS |

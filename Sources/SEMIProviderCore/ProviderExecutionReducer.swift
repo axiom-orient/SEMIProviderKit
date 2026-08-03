@@ -37,6 +37,7 @@ public enum ProviderExecutionEvent: Equatable, Sendable {
   case transportOpened(ProviderResponseMetadata)
   case retryRequested
   case textDeltaReceived(String)
+  case reasoningDeltaReceived(String)
   case toolCallCompleted(ProviderToolCall)
   case transportCompleted(ProviderCompletion)
   case transportFailed(ProviderFailure)
@@ -98,6 +99,25 @@ public enum ProviderExecutionReducer {
           phase: .streaming(request, metadata, hasVisibleOutput: true)
         ),
         [.publish(.textDelta(delta))]
+      )
+
+    case (
+      .streaming(let request, let metadata, _),
+      .reasoningDeltaReceived(let delta)
+    ):
+      guard !delta.isEmpty,
+        delta.unicodeScalars.count <= 1_048_576,
+        !delta.unicodeScalars.contains(where: { $0.value == 0 })
+      else {
+        throw invalidTransition("provider reasoning delta is empty or invalid")
+      }
+      return (
+        .init(
+          generation: state.generation,
+          hasPublishedStarted: state.hasPublishedStarted,
+          phase: .streaming(request, metadata, hasVisibleOutput: true)
+        ),
+        [.publish(.reasoningDelta(delta))]
       )
 
     case (

@@ -21,6 +21,8 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
   제공하지 않아 fail-closed한다.
 - credential material의 description/debug description은 경로와 secret을 노출하지 않는다.
 - OAuth callback 화면과 OpenRouter application title은 `SEMI` 이름만 사용한다.
+- failed tool result는 normalized `isError`를 유지하고, displayable reasoning은 answer text와
+  분리된 stream event로 공개한다.
 
 ## Verification Record
 
@@ -47,6 +49,8 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
   session이 수용하고, 실제 callback의 state·origin·query 검증은 유지함을 regression test로
   고정했다. tool history·credential permission 변경을 포함한 current worktree는 98 tests를
   통과했고, exact candidate commit의 clean archive에서도 같은 local gate를 통과했다.
+- 2026-08-03: current candidate clean archive에서 warnings-as-errors debug·release build/test,
+  TSAN, ASAN, format, source boundary 검사를 통과했다 (3개 suite, 총 104개 test).
 
 ## Residual External Scope
 
