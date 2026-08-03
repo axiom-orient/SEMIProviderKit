@@ -141,4 +141,35 @@ struct ProviderAppleTests {
     #expect(prepared.callbackURL.port != nil)
     await prepared.session.cancel()
   }
+
+  @Test("Loopback authorization accepts the documented OpenRouter PKCE URL shape")
+  func loopbackAuthorizationAcceptsOpenRouterPKCEURL() throws {
+    let request = try ProviderAuthorizationRequest(
+      providerID: ProviderID("openrouter"),
+      authorizationURL: try #require(
+        URL(
+          string:
+            "https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A54321%2Foauth%2Fopenrouter%3Fstate%3Dexpected&code_challenge=challenge&code_challenge_method=S256"
+        )
+      ),
+      callbackScheme: "http",
+      state: "expected"
+    )
+    try AppleLoopbackAuthorizationSession.validateLoopbackAuthorizationRequest(request)
+  }
+
+  @Test("Loopback authorization rejects a non-HTTP callback")
+  func loopbackAuthorizationRequiresHTTPCallback() throws {
+    let request = try ProviderAuthorizationRequest(
+      providerID: ProviderID("openrouter"),
+      authorizationURL: try #require(
+        URL(string: "https://openrouter.ai/auth?callback_url=https://example.com")
+      ),
+      callbackScheme: "https",
+      state: "expected"
+    )
+    #expect(throws: ProviderFailure.self) {
+      try AppleLoopbackAuthorizationSession.validateLoopbackAuthorizationRequest(request)
+    }
+  }
 }

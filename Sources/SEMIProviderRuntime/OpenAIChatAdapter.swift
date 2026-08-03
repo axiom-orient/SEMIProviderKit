@@ -196,6 +196,28 @@ package struct OpenAIChatAdapter: ProviderAdapter {
         }
         continue
       }
+      if message.role == .assistant {
+        let text = message.content.compactMap { item -> String? in
+          guard case .text(let value) = item else { return nil }
+          return value
+        }.joined(separator: "\n")
+        let toolCalls = try message.content.compactMap { item -> ProviderJSONValue? in
+          guard case .toolCall(let callID, let name, let arguments) = item else { return nil }
+          return [
+            "id": .string(callID),
+            "type": "function",
+            "function": [
+              "name": .string(name),
+              "arguments": .string(String(decoding: try arguments.encodedData(), as: UTF8.self)),
+            ],
+          ]
+        }
+        var assistant: [String: ProviderJSONValue] = ["role": "assistant"]
+        assistant["content"] = text.isEmpty ? .null : .string(text)
+        if !toolCalls.isEmpty { assistant["tool_calls"] = .array(toolCalls) }
+        messages.append(.object(assistant))
+        continue
+      }
       let role = message.role == .developer ? "system" : message.role.rawValue
       let text = message.content.compactMap { item -> String? in
         guard case .text(let value) = item else { return nil }

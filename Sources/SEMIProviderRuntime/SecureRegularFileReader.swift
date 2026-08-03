@@ -31,6 +31,8 @@ package enum SecureRegularFileReader {
     var initial = stat()
     guard fstat(descriptor, &initial) == 0,
       (initial.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+      initial.st_uid == geteuid(),
+      (initial.st_mode & mode_t(0o022)) == 0,
       initial.st_size >= 0,
       UInt64(initial.st_size) <= UInt64(maximumBytes)
     else {

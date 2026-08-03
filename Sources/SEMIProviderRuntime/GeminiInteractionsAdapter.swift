@@ -178,6 +178,17 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
 
   private func encodeRequest(_ request: ProviderTurnRequest) throws -> ProviderJSONValue {
     try ProviderWireValidation.requireServerSideContinuationOptIn(request)
+    if request.messages.contains(where: { message in
+      message.content.contains { content in
+        if case .toolCall = content { return true }
+        return false
+      }
+    }) {
+      throw ProviderFailure(
+        code: .capabilityMismatch,
+        message: "Gemini caller-owned tool history is not qualified without every provider step"
+      )
+    }
     var system: [String] = []
     var input: [ProviderJSONValue] = []
 

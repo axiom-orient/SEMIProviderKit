@@ -198,7 +198,30 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
         }
         continue
       }
-      let contentType = message.role == .assistant ? "output_text" : "input_text"
+      if message.role == .assistant {
+        let items = message.content.compactMap { item -> ProviderJSONValue? in
+          guard case .text(let text) = item else { return nil }
+          return ["type": "output_text", "text": .string(text)]
+        }
+        if !items.isEmpty {
+          input.append([
+            "type": "message",
+            "role": "assistant",
+            "content": .array(items),
+          ])
+        }
+        for content in message.content {
+          guard case .toolCall(let callID, let name, let arguments) = content else { continue }
+          input.append([
+            "type": "function_call",
+            "call_id": .string(callID),
+            "name": .string(name),
+            "arguments": .string(String(decoding: try arguments.encodedData(), as: UTF8.self)),
+          ])
+        }
+        continue
+      }
+      let contentType = "input_text"
       let items = message.content.compactMap { item -> ProviderJSONValue? in
         guard case .text(let text) = item else { return nil }
         return ["type": .string(contentType), "text": .string(text)]
@@ -339,7 +362,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       return [.textDelta(delta)]
     case "response.output_item.added":
       guard root.value(at: "item", "type")?.stringValue == "function_call" else { return [] }
-      let key = try toolKey(root, fallbackIndex: tools.count)
+      let key = try toolKey(root)
       var state = tools[key] ?? ToolState()
       state.callID = root.value(at: "item", "call_id")?.stringValue ?? state.callID
       state.name = root.value(at: "item", "name")?.stringValue ?? state.name
@@ -349,13 +372,13 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       tools[key] = state
       return []
     case "response.function_call_arguments.delta":
-      let key = try toolKey(root, fallbackIndex: 0)
+      let key = try toolKey(root)
       var state = tools[key] ?? ToolState()
       if let delta = root["delta"]?.stringValue { try state.arguments.append(delta) }
       tools[key] = state
       return []
     case "response.function_call_arguments.done":
-      let key = try toolKey(root, fallbackIndex: 0)
+      let key = try toolKey(root)
       var state = tools[key] ?? ToolState()
       if let arguments = root["arguments"]?.stringValue {
         try state.arguments.replace(with: arguments)
@@ -364,7 +387,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       return try emitTool(key: key)
     case "response.output_item.done":
       guard root.value(at: "item", "type")?.stringValue == "function_call" else { return [] }
-      let key = try toolKey(root, fallbackIndex: 0)
+      let key = try toolKey(root)
       var state = tools[key] ?? ToolState()
       state.callID = root.value(at: "item", "call_id")?.stringValue ?? state.callID
       state.name = root.value(at: "item", "name")?.stringValue ?? state.name
@@ -438,13 +461,19 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     return []
   }
 
-  private func toolKey(_ root: ProviderJSONValue, fallbackIndex: Int) throws -> String {
+  private func toolKey(_ root: ProviderJSONValue) throws -> String {
     if let value = root.value(at: "item", "id")?.stringValue ?? root["item_id"]?.stringValue {
       return value
     }
+    guard let rawIndex = root["output_index"] else {
+      throw ProviderFailure(
+        code: .malformedResponse,
+        message: "Responses tool event is missing its item identity"
+      )
+    }
     let index = try ProviderWireValidation.nonnegativeInteger(
-      root["output_index"],
-      defaultValue: fallbackIndex,
+      rawIndex,
+      defaultValue: 0,
       field: "Responses output index"
     )
     return "index:\(index)"

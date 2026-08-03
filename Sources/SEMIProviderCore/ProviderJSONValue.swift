@@ -3,6 +3,11 @@ import Foundation
 public enum ProviderJSONValue: Equatable, Sendable {
   case null
   case bool(Bool)
+  /// A JSON number represented as IEEE-754 binary64.
+  ///
+  /// This preserves ordinary JSON numeric values, but cannot preserve integer
+  /// precision beyond `2^53`. Use a JSON string for identifier-like integers
+  /// that require lossless round trips.
   case number(Double)
   case string(String)
   case array([ProviderJSONValue])

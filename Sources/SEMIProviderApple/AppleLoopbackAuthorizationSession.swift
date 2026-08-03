@@ -42,6 +42,8 @@ package struct HTTPHeaderTerminatorScanner: Sendable {
 /// callback while authorization is active, and closes before publishing it.
 public actor AppleLoopbackAuthorizationSession: ProviderAuthorizationSession {
   public struct Prepared: Sendable {
+    /// A bound listener. Call `session.authorize(_:)` or `session.cancel()` to
+    /// release its loopback port.
     public let session: AppleLoopbackAuthorizationSession
     public let callbackURL: URL
 
@@ -129,12 +131,7 @@ public actor AppleLoopbackAuthorizationSession: ProviderAuthorizationSession {
         message: "a loopback authorization is already active"
       )
     }
-    guard request.callbackScheme.lowercased() == "http" else {
-      throw ProviderFailure(
-        code: .invalidRequest,
-        message: "loopback authorization requires an HTTP callback"
-      )
-    }
+    try Self.validateLoopbackAuthorizationRequest(request)
 
     authorizationState = request.state
     authorizationActive = true
@@ -170,6 +167,23 @@ public actor AppleLoopbackAuthorizationSession: ProviderAuthorizationSession {
       }
     } onCancel: {
       Task { await self.cancel() }
+    }
+  }
+
+  /// Validates requirements that are specific to this loopback session.
+  ///
+  /// OAuth providers choose how they carry the redirect URL. In particular,
+  /// OpenRouter's documented PKCE URL has a `callback_url` query item rather
+  /// than a top-level `state`. The callback parser validates the expected state
+  /// after the provider redirects to the bound loopback listener.
+  package static func validateLoopbackAuthorizationRequest(
+    _ request: ProviderAuthorizationRequest
+  ) throws {
+    guard request.callbackScheme.lowercased() == "http" else {
+      throw ProviderFailure(
+        code: .invalidRequest,
+        message: "loopback authorization requires an HTTP callback"
+      )
     }
   }
 

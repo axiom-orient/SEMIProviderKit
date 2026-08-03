@@ -179,8 +179,19 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
       }
       let role = message.role == .assistant ? "assistant" : "user"
       let blocks = message.content.compactMap { item -> ProviderJSONValue? in
-        guard case .text(let text) = item else { return nil }
-        return ["type": "text", "text": .string(text)]
+        switch item {
+        case .text(let text):
+          return ["type": "text", "text": .string(text)]
+        case .toolCall(let callID, let name, let arguments):
+          return [
+            "type": "tool_use",
+            "id": .string(callID),
+            "name": .string(name),
+            "input": arguments,
+          ]
+        case .toolResult:
+          return nil
+        }
       }
       if !blocks.isEmpty { messages.append(["role": .string(role), "content": .array(blocks)]) }
     }

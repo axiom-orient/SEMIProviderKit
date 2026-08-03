@@ -67,6 +67,11 @@ public enum ProviderMessageRole: String, Codable, CaseIterable, Sendable {
 
 public enum ProviderMessageContent: Codable, Equatable, Sendable {
   case text(String)
+  /// A client-side tool call previously emitted by the assistant.
+  ///
+  /// Callers append this to caller-owned history before appending the matching
+  /// `toolResult`, so stateless provider requests preserve the tool round trip.
+  case toolCall(callID: String, name: String, arguments: ProviderJSONValue)
   case toolResult(callID: String, name: String, value: ProviderJSONValue)
 
   private enum CodingKeys: String, CodingKey {
@@ -79,6 +84,7 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
 
   private enum Kind: String, Codable {
     case text
+    case toolCall = "tool_call"
     case toolResult = "tool_result"
   }
 
@@ -87,6 +93,12 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
     switch try container.decode(Kind.self, forKey: .type) {
     case .text:
       self = .text(try container.decode(String.self, forKey: .text))
+    case .toolCall:
+      self = .toolCall(
+        callID: try container.decode(String.self, forKey: .callID),
+        name: try container.decode(String.self, forKey: .name),
+        arguments: try container.decode(ProviderJSONValue.self, forKey: .value)
+      )
     case .toolResult:
       self = .toolResult(
         callID: try container.decode(String.self, forKey: .callID),
@@ -102,6 +114,11 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
     case .text(let text):
       try container.encode(Kind.text, forKey: .type)
       try container.encode(text, forKey: .text)
+    case .toolCall(let callID, let name, let arguments):
+      try container.encode(Kind.toolCall, forKey: .type)
+      try container.encode(callID, forKey: .callID)
+      try container.encode(name, forKey: .name)
+      try container.encode(arguments, forKey: .value)
     case .toolResult(let callID, let name, let value):
       try container.encode(Kind.toolResult, forKey: .type)
       try container.encode(callID, forKey: .callID)
@@ -141,6 +158,22 @@ public struct ProviderMessage: Codable, Equatable, Sendable {
           throw ProviderCoreError(code: .invalidRequest, message: "provider message is oversized")
         }
         textScalars = next
+      case .toolCall(let callID, let name, let arguments):
+        try Self.validateToolCallID(callID)
+        try Self.validateToolName(name)
+        guard arguments.objectValue != nil else {
+          throw ProviderCoreError(
+            code: .invalidRequest,
+            message: "provider tool call arguments must be an object"
+          )
+        }
+        _ = try arguments.validated()
+        guard role == .assistant else {
+          throw ProviderCoreError(
+            code: .invalidRequest,
+            message: "tool call content requires the assistant message role"
+          )
+        }
       case .toolResult(let callID, let name, let value):
         try Self.validateToolCallID(callID)
         try Self.validateToolName(name)
@@ -400,9 +433,16 @@ public struct ProviderRequestConstraints: Codable, Equatable, Sendable {
   public let dataCollection: ProviderDataCollectionPolicy
   public let requiresZeroDataRetention: Bool
   public let requiresParameterSupport: Bool
+  /// Endpoint fallback is forbidden by ProviderKit policy and must be `false`.
+  ///
+  /// The stored value exists so Codable requests retain the full privacy and
+  /// routing contract, including when sent to compatible provider dialects.
   public let allowsProviderEndpointFallbacks: Bool
   public let timeoutMilliseconds: UInt64
   public let maximumResponseBytes: Int
+  /// Maximum total transport attempts, including the initial attempt.
+  ///
+  /// `1` disables retries; `2` permits one retry before visible output.
   public let maximumRetryAttempts: Int
   public let maximumOutputTokens: Int?
 
@@ -483,6 +523,7 @@ public struct ProviderTurnRequest: Codable, Equatable, Sendable {
         message: "provider continuation belongs to another provider account"
       )
     }
+    try Self.validateToolHistory(messages, requiresLocalToolCalls: continuation == nil)
     switch toolChoice {
     case .automatic:
       break
@@ -522,6 +563,58 @@ public struct ProviderTurnRequest: Codable, Equatable, Sendable {
     self.reasoning = reasoning
     self.continuation = continuation
     self.constraints = constraints
+  }
+
+  private static func validateToolHistory(
+    _ messages: [ProviderMessage],
+    requiresLocalToolCalls: Bool
+  ) throws {
+    var calls: [String: String] = [:]
+    var results = Set<String>()
+    for message in messages {
+      for content in message.content {
+        switch content {
+        case .toolCall(let callID, let name, _):
+          guard calls[callID] == nil else {
+            throw ProviderCoreError(
+              code: .invalidRequest,
+              message: "provider request repeats a tool call ID"
+            )
+          }
+          calls[callID] = name
+        case .toolResult(let callID, let name, _):
+          if let expectedName = calls[callID] {
+            guard expectedName == name else {
+              throw ProviderCoreError(
+                code: .invalidRequest,
+                message: "provider tool result name does not match its call"
+              )
+            }
+          } else if requiresLocalToolCalls {
+            throw ProviderCoreError(
+              code: .invalidRequest,
+              message: "provider tool result has no preceding assistant tool call"
+            )
+          }
+          guard results.insert(callID).inserted else {
+            throw ProviderCoreError(
+              code: .invalidRequest,
+              message: "provider request repeats a tool result"
+            )
+          }
+        case .text:
+          break
+        }
+      }
+    }
+    if requiresLocalToolCalls,
+      let unresolvedCallID = calls.keys.first(where: { !results.contains($0) })
+    {
+      throw ProviderCoreError(
+        code: .invalidRequest,
+        message: "provider assistant tool call has no matching tool result: \(unresolvedCallID)"
+      )
+    }
   }
 }
 

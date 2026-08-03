@@ -56,6 +56,69 @@ struct ProviderCoreTests {
     #expect(throws: ProviderCoreError.self) { try tooDeep.encodedData() }
   }
 
+  @Test("Assistant tool calls are validated and round-trip with tool results")
+  func assistantToolCallHistory() throws {
+    let arguments: ProviderJSONValue = ["city": "Seoul"]
+    let call = ProviderMessageContent.toolCall(
+      callID: "call-1",
+      name: "lookup_weather",
+      arguments: arguments
+    )
+    let assistant = try ProviderMessage(role: .assistant, content: [call])
+    let result = try ProviderMessage(
+      role: .tool,
+      content: [.toolResult(callID: "call-1", name: "lookup_weather", value: ["temperature": 22])]
+    )
+    let decoded = try JSONDecoder().decode(
+      ProviderMessage.self,
+      from: JSONEncoder().encode(assistant)
+    )
+    #expect(decoded == assistant)
+    #expect(result.role == .tool)
+    #expect(throws: ProviderCoreError.self) {
+      _ = try ProviderMessage(role: .user, content: [call])
+    }
+    #expect(throws: ProviderCoreError.self) {
+      _ = try ProviderMessage(
+        role: .assistant,
+        content: [.toolCall(callID: "call-2", name: "lookup_weather", arguments: .string("bad"))]
+      )
+    }
+    #expect(throws: ProviderCoreError.self) {
+      _ = try ProviderTurnRequest(
+        id: ProviderRequestID("orphan-tool-result"),
+        selection: ProviderSelection(
+          providerID: BuiltInProviderID.openAI,
+          accountID: ProviderAccountID("account-1"),
+          modelID: ProviderModelID("model-1")
+        ),
+        messages: [
+          try ProviderMessage(role: .user, text: "weather"),
+          try ProviderMessage(
+            role: .tool,
+            content: [.toolResult(callID: "missing", name: "lookup_weather", value: [:])]
+          ),
+        ],
+        constraints: ProviderRequestConstraints()
+      )
+    }
+    #expect(throws: ProviderCoreError.self) {
+      _ = try ProviderTurnRequest(
+        id: ProviderRequestID("unresolved-tool-call"),
+        selection: ProviderSelection(
+          providerID: BuiltInProviderID.openAI,
+          accountID: ProviderAccountID("account-1"),
+          modelID: ProviderModelID("model-1")
+        ),
+        messages: [
+          try ProviderMessage(role: .user, text: "weather"),
+          assistant,
+        ],
+        constraints: ProviderRequestConstraints()
+      )
+    }
+  }
+
   @Test("Turn request keeps provider, account, and model independent")
   func turnRequest() throws {
     let request = try makeRequest()

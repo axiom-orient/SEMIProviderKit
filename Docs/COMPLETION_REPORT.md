@@ -43,6 +43,10 @@ tool 실행 권위, cross-provider fallback, durable run state는 호출자 제�
   `register → models(8) → exact text streaming turn → revoke`를 통과했다. 존재하지 않는
   auth reference는 terminal failure와 빈 `accounts()`로 staged credential 보상 제거를
   확인했다. credential 내용과 응답 본문은 출력하지 않았다.
+- 2026-08-03: documented OpenRouter PKCE URL(`callback_url`, S256 challenge)을 loopback
+  session이 수용하고, 실제 callback의 state·origin·query 검증은 유지함을 regression test로
+  고정했다. tool history·credential permission 변경을 포함한 current worktree는 98 tests를
+  통과했고, exact candidate commit의 clean archive에서도 같은 local gate를 통과했다.
 
 ## Residual External Scope
 

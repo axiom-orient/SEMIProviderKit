@@ -108,6 +108,11 @@ public enum ProviderFailureCode: String, Codable, CaseIterable, Sendable {
 
 public struct ProviderFailure: Error, Codable, Equatable, Sendable {
   public let code: ProviderFailureCode
+  /// A bounded diagnostic message.
+  ///
+  /// Some values originate with a remote provider. ProviderKit applies
+  /// best-effort token redaction, but callers must not treat this field as
+  /// safe for unrestricted logging or as a source of credentials.
   public let message: String
   public let providerStatusCode: Int?
   public let retryAfterMilliseconds: UInt64?

@@ -14,13 +14,13 @@
 | F-08 | Codex external auth file | ProviderKit | `SecureRegularFileReader`, bounded async managed/installed Codex version resolver, Codex adapter | symlink·size·header injection·version fallback·wedged process tests, account/catalog/turn live flow | PASS |
 | F-09 | OpenRouter direct 호출 | ProviderKit | direct HTTP/SSE adapter | request/privacy/OAuth fixtures | LIVE_REQUIRED |
 | F-10 | API key 계정 | ProviderKit + 선택적 호출자 저장 adapter | `InMemoryProviderCredentialStore` 또는 `ProviderCredentialStore` 주입 | public in-memory lifecycle + registration transaction tests | LIVE_REQUIRED |
-| F-11 | OAuth 계정 | ProviderKit + Apple | OpenRouter PKCE broker, loopback session | RFC PKCE, callback/replay tests | LIVE_REQUIRED |
+| F-11 | OAuth 계정 | ProviderKit + Apple | documented OpenRouter PKCE URL, loopback callback state·origin·query validation | PKCE URL shape, callback/replay tests | LIVE_REQUIRED |
 | F-12 | 복수 계정 격리 | ProviderKit | account ID keyed supervisor/store/continuation | registration/revoke/continuation isolation tests | PASS |
 | F-13 | model catalog·exact ID | ProviderKit | strict catalog parser, `ProviderModelID`, optional output-token limit | malformed/duplicate/limit catalog tests | LIVE_REQUIRED |
 | F-14 | stage별 route | 호출자 제품 | `ProviderSelection` 값만 제공 | boundary verifier | OUTSIDE |
 | F-15 | capability qualification | ProviderKit + 호출자 | descriptor/catalog capability 상태 | strict decode tests | LIVE_REQUIRED |
 | F-16 | structured output·reasoning 정책 | ProviderKit + caller | Provider별 output constraint, dialect별 reasoning 인코딩 또는 명시적 거부 | native/application-validated, reasoning policy tests | PASS |
-| F-17 | tool call 정규화·선택 | ProviderKit | bounded argument accumulator, completed call only, explicit automatic/required/named policy | partial/malformed/oversize/tool-choice wire tests | PASS |
+| F-17 | tool call 정규화·선택 | ProviderKit | bounded accumulator, completed call only, caller-owned call/result history, declared-tool allowlist | history wire round-trip, malformed/oversize/identity/tool-choice, Gemini stateless history fail-closed tests | PASS |
 | F-18 | tool 실행 권위 | 호출자 제품 | 실행 API 없음 | public API/boundary inspection | OUTSIDE |
 | F-19 | usage 계측 | ProviderKit | normalized `ProviderUsage`, usage-only compatible chunk | malformed/overflow/usage-only tests | PASS |
 | F-20 | privacy/data routing | ProviderKit + 호출자 | request constraints → Provider wire | OpenRouter privacy fixture | PASS |

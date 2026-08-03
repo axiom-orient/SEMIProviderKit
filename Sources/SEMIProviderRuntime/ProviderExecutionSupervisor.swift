@@ -501,10 +501,28 @@ package actor ProviderExecutionSession {
       try await transitionAndPublish(.textDeltaReceived(value))
       return nil
     case .toolCall(let call):
+      try validateProviderToolCall(call)
       try await transitionAndPublish(.toolCallCompleted(call))
       return nil
     case .completed(let draft):
       return try draft.materialize(at: await clock.now())
+    }
+  }
+
+  private func validateProviderToolCall(_ call: ProviderToolCall) throws {
+    guard request.tools.contains(where: { $0.name == call.name }) else {
+      throw ProviderFailure(
+        code: .malformedResponse,
+        message: "provider requested a tool that was not declared for this turn",
+        requestID: request.id
+      )
+    }
+    if case .named(let expected) = request.toolChoice, call.name != expected {
+      throw ProviderFailure(
+        code: .malformedResponse,
+        message: "provider requested a tool outside the named tool choice",
+        requestID: request.id
+      )
     }
   }
 

@@ -255,6 +255,130 @@ struct ProviderRuntimeTests {
     #expect(throws: ProviderFailure.self) {
       try SecureRegularFileReader.read(regular, maximumBytes: payload.count - 1)
     }
+
+    try FileManager.default.setAttributes([.posixPermissions: 0o622], ofItemAtPath: regular.path)
+    #expect(throws: ProviderFailure.self) {
+      try SecureRegularFileReader.read(regular, maximumBytes: payload.count)
+    }
+  }
+
+  @Test("Tool history preserves the assistant call before the tool result")
+  func toolHistoryEncoding() async throws {
+    let tool = try ProviderToolDefinition(
+      name: "lookup_weather",
+      description: "looks up weather",
+      inputSchema: ["type": "object"]
+    )
+    let messages = [
+      try ProviderMessage(role: .user, text: "weather in Seoul"),
+      try ProviderMessage(
+        role: .assistant,
+        content: [.toolCall(callID: "call-1", name: "lookup_weather", arguments: ["city": "Seoul"])]
+      ),
+      try ProviderMessage(
+        role: .tool,
+        content: [.toolResult(callID: "call-1", name: "lookup_weather", value: ["temperature": 22])]
+      ),
+    ]
+    func request(_ providerID: ProviderID) throws -> ProviderTurnRequest {
+      try ProviderTurnRequest(
+        id: ProviderRequestID("tool-history"),
+        selection: ProviderSelection(
+          providerID: providerID,
+          accountID: ProviderAccountID("account-1"),
+          modelID: ProviderModelID("vendor/model")
+        ),
+        messages: messages,
+        tools: [tool],
+        constraints: ProviderRequestConstraints()
+      )
+    }
+
+    let responses = try await encodedBody(
+      OpenAIResponsesAdapter(kind: .openAI), request: request(BuiltInProviderID.openAI)
+    )
+    let responseInput = try #require(responses["input"]?.arrayValue)
+    #expect(responseInput.contains { $0["type"]?.stringValue == "function_call" })
+    #expect(responseInput.contains { $0["type"]?.stringValue == "function_call_output" })
+
+    let anthropic = try await encodedBody(
+      AnthropicMessagesAdapter(kind: .anthropic), request: request(BuiltInProviderID.anthropic)
+    )
+    let anthropicMessages = try #require(anthropic["messages"]?.arrayValue)
+    #expect(
+      anthropicMessages.contains {
+        $0["content"]?.arrayValue?.contains { $0["type"]?.stringValue == "tool_use" } == true
+      })
+    #expect(
+      anthropicMessages.contains {
+        $0["content"]?.arrayValue?.contains { $0["type"]?.stringValue == "tool_result" } == true
+      })
+
+    let chat = try await encodedBody(
+      OpenAIChatAdapter(kind: .openRouter), request: request(BuiltInProviderID.openRouter)
+    )
+    let chatMessages = try #require(chat["messages"]?.arrayValue)
+    #expect(
+      chatMessages.contains {
+        $0["tool_calls"]?.arrayValue?.first?["id"]?.stringValue == "call-1"
+      })
+    #expect(chatMessages.contains { $0["tool_call_id"]?.stringValue == "call-1" })
+
+    await expectCapabilityMismatch {
+      _ = try await encodedBody(
+        GeminiInteractionsAdapter(),
+        request: request(BuiltInProviderID.gemini)
+      )
+    }
+  }
+
+  @Test("Runtime rejects a provider tool call that was not declared")
+  func runtimeRejectsUndeclaredProviderTool() async throws {
+    let account = try ProviderAccountID("account-1")
+    let store = try TestCredentialStore(active: [
+      activeLease(accountID: account, providerID: BuiltInProviderID.openRouter)
+    ])
+    let transport = ScriptedTransport(scripts: [
+      .sse(
+        status: 200,
+        events: [
+          #"data: {"id":"unsafe-tool","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"delete_everything","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#
+            + "\n\n",
+          "data: [DONE]\n\n",
+        ]
+      )
+    ])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let tool = try ProviderToolDefinition(
+      name: "lookup_weather",
+      description: "looks up weather",
+      inputSchema: ["type": "object"]
+    )
+    let request = try ProviderTurnRequest(
+      id: ProviderRequestID("undeclared-tool"),
+      selection: ProviderSelection(
+        providerID: BuiltInProviderID.openRouter,
+        accountID: account,
+        modelID: ProviderModelID("vendor/model")
+      ),
+      messages: [try ProviderMessage(role: .user, text: "weather")],
+      tools: [tool],
+      constraints: ProviderRequestConstraints()
+    )
+    var terminal: ProviderTerminal?
+    for await event in await runtime.execute(request) {
+      if case .terminal(let value) = event { terminal = value }
+    }
+    guard case .failed(let failure) = terminal else {
+      Issue.record("undeclared provider tool was not rejected")
+      return
+    }
+    #expect(failure.code == .malformedResponse)
+    await runtime.shutdown()
   }
 
   @Test("OpenRouter request is direct, private by default, and does not fallback")
@@ -569,6 +693,24 @@ struct ProviderRuntimeTests {
       from: try #require(noInstructionsWire.urlRequest.httpBody)
     )
     #expect(noInstructionsBody["instructions"] == nil)
+  }
+
+  @Test("Responses rejects a tool event without a stable item identity")
+  func responsesToolIdentityIsRequired() throws {
+    let decoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+      for: makeRequest(providerID: BuiltInProviderID.openAI)
+    )
+    #expect(throws: ProviderFailure.self) {
+      _ = try decoder.consume(
+        .init(
+          event: "response.output_item.added",
+          data:
+            #"{"type":"response.output_item.added","item":{"type":"function_call","name":"lookup"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      )
+    }
   }
 
   @Test("Reasoning policy is either encoded on the wire or rejected, never dropped")
@@ -1004,6 +1146,14 @@ struct ProviderRuntimeTests {
     #expect(
       authComponents.queryItems?.first(where: { $0.name == "code_challenge_method" })?.value
         == "S256")
+    #expect(!((authComponents.queryItems ?? []).contains { $0.name == "state" }))
+    let callbackURL = try #require(
+      authComponents.queryItems?.first(where: { $0.name == "callback_url" })?.value
+    )
+    let callbackComponents = try #require(URLComponents(string: callbackURL))
+    #expect(
+      callbackComponents.queryItems?.filter({ $0.name == "state" }).map(\.value) == [pkce.state]
+    )
 
     await expectThrownProviderFailure {
       _ = try await runtime.registerOpenRouterOAuth(oauth, using: authorization)
@@ -1652,8 +1802,17 @@ struct ProviderRuntimeTests {
       transport: transport,
       clock: SystemProviderClock()
     )
+    let tool = try ProviderToolDefinition(
+      name: "lookup",
+      description: "looks a value up",
+      inputSchema: ["type": "object"]
+    )
     let stream = await runtime.execute(
-      try makeRequest(providerID: BuiltInProviderID.openRouter, accountID: account)
+      try makeRequest(
+        providerID: BuiltInProviderID.openRouter,
+        accountID: account,
+        tools: [tool]
+      )
     )
     try await Task.sleep(for: .milliseconds(50))
 

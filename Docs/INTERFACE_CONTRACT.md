@@ -14,8 +14,22 @@
 `ProviderTurnRequest`는 immutable selection, messages, tool definition/choice, output,
 reasoning, continuation과 timeout·byte·retry·privacy constraint를 담는다. 생성자가
 형식과 상한을 검증하며 Runtime은 Provider/account/model route를 임의로 바꾸지 않는다.
-`Codable` 왕복은 이 필드를 모두 보존한다. 정책이 직렬화에서 사라지면 `.required` tool
+`maximumRetryAttempts`는 최초 요청을 포함한 최대 전송 시도 수다. 따라서 기본값 `1`은
+재시도를 끄고, `2`는 visible output 전 1회의 retry를 허용한다. provider endpoint fallback은
+package 정책상 항상 금지되며, Codable 계약 보존을 위해 `false` 값도 직렬화한다. `Codable` 왕복은 이 필드를 모두 보존한다. 정책이 직렬화에서 사라지면 `.required` tool
 choice가 `.automatic`으로 조용히 낮아지므로, 왕복 보존은 회귀 테스트로 고정한다.
+
+## Tool round trip and trust boundary
+
+caller-owned history에서 tool을 실행한 뒤에는 assistant의 `.toolCall(callID:name:arguments:)`와
+그에 대응하는 `.toolResult`를 순서대로 보존해야 한다. Runtime은 이번 turn에 선언하지 않은
+provider tool name과 `.named` choice 밖의 tool call을 malformed response로 거부한다. arguments는
+항상 untrusted provider input이다. `inputSchema`는 provider wire 제약이며, 실제 tool 실행자는
+자신의 권한·입력 검증을 별도로 적용해야 한다.
+
+OpenAI Responses·OpenAI-compatible chat·Anthropic Messages는 이 history pair를 wire에 보존한다.
+Gemini stateless tool history는 provider가 반환한 모든 step(예: thought/signature)을 정확히
+보존해야 하므로 이 public 모델로 재구성하지 않으며, assistant tool-call history를 fail-closed한다.
 
 `ProviderContinuation`은 OpenAI Responses의 `previous_response_id` 또는 Gemini
 Interactions의 `previous_interaction_id`처럼 provider 서버 상태를 참조한다. 이 경로는
@@ -41,6 +55,12 @@ lifetime에만 존재한다. durable 보존이 필요하면 실제 secret 저장
 Codex `auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을
 복사하지 않고 store가 보존한 검증된 파일 참조를 읽는다.
 
+OpenRouter PKCE authorization URL은 provider의 documented `callback_url`,
+`code_challenge`, `code_challenge_method` 형식을 그대로 사용한다. state는 loopback
+callback URL에 caller-owned correlation 값으로 넣고, bound listener와 broker가 callback의
+origin·path·query multiset·state를 모두 검증한다. authorization URL 최상위 query에 state가
+있다는 가정은 하지 않는다.
+
 ## Outputs
 
 | 작업 | 출력 | 종료 규칙 |
@@ -53,7 +73,10 @@ Codex `auth.json`은 다른 시스템이 관리하는 외부 입력이며 Provid
 
 두 event stream은 single-consumer다. 두 번째 iterator 또는 동시 `next()`는 명시적
 실패다. partial tool argument는 출력하지 않으며 완성·검증된 tool call만 공개한다.
-오류 메시지는 credential/token 패턴을 redaction하고 1,024자로 제한한다.
+오류 메시지는 credential/token 패턴을 best-effort redaction하고 1,024자로 제한한다. provider가
+보낸 원격 진단 문자열일 수 있으므로 unrestricted log나 credential source로 취급하지 않는다.
+`ProviderJSONValue.number`는 IEEE-754 binary64이며 2^53을 넘는 식별자 정수는 문자열로 전달해야
+lossless round-trip이 가능하다.
 
 ## Artifacts and persistence
 
