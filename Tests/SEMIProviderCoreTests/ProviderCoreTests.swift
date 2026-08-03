@@ -119,6 +119,47 @@ struct ProviderCoreTests {
     }
   }
 
+  @Test("Tool result error markers are Codable and preserve legacy payloads")
+  func toolResultErrorMarkerCodable() throws {
+    let failed = ProviderMessageContent.toolResult(
+      callID: "call-1",
+      name: "lookup_weather",
+      value: ["message": "service unavailable"],
+      isError: true
+    )
+    let encoded = try JSONEncoder().encode(failed)
+    let encodedValue = try ProviderJSONValue.decode(from: encoded)
+    guard case .bool(let encodedIsError) = encodedValue.objectValue?["is_error"] else {
+      Issue.record("encoded tool result did not contain a boolean is_error marker")
+      return
+    }
+    #expect(encodedIsError)
+    #expect(try JSONDecoder().decode(ProviderMessageContent.self, from: encoded) == failed)
+
+    let legacy = Data(
+      #"""
+      {"type":"tool_result","call_id":"call-1","name":"lookup_weather","value":{"temperature":22}}
+      """#.utf8
+    )
+    let decodedLegacy = try JSONDecoder().decode(ProviderMessageContent.self, from: legacy)
+    guard case .toolResult(_, _, _, let isError) = decodedLegacy else {
+      Issue.record("legacy tool result did not decode as a tool result")
+      return
+    }
+    #expect(!isError)
+
+    let sourceCompatible = ProviderMessageContent.toolResult(
+      callID: "call-1",
+      name: "lookup_weather",
+      value: ["temperature": 22]
+    )
+    guard case .toolResult(_, _, _, let isError) = sourceCompatible else {
+      Issue.record("source-compatible tool result did not decode as a tool result")
+      return
+    }
+    #expect(!isError)
+  }
+
   @Test("Turn request keeps provider, account, and model independent")
   func turnRequest() throws {
     let request = try makeRequest()

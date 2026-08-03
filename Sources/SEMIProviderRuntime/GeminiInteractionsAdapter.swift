@@ -203,7 +203,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       }
       if message.role == .tool {
         for content in message.content {
-          guard case .toolResult(let callID, let name, let value) = content else { continue }
+          guard case .toolResult(let callID, let name, let value, _) = content else { continue }
           input.append([
             "type": "function_result",
             "name": .string(name),

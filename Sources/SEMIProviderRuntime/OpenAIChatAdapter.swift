@@ -187,7 +187,7 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     for message in request.messages {
       if message.role == .tool {
         for item in message.content {
-          guard case .toolResult(let callID, _, let value) = item else { continue }
+          guard case .toolResult(let callID, _, let value, _) = item else { continue }
           messages.append([
             "role": "tool",
             "tool_call_id": .string(callID),

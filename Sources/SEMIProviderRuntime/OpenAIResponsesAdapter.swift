@@ -189,7 +189,7 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
       }
       if message.role == .tool {
         for content in message.content {
-          guard case .toolResult(let callID, _, let value) = content else { continue }
+          guard case .toolResult(let callID, _, let value, _) = content else { continue }
           input.append([
             "type": "function_call_output",
             "call_id": .string(callID),

@@ -332,6 +332,120 @@ struct ProviderRuntimeTests {
     }
   }
 
+  @Test("Failed tool results use an Anthropic-only qualified wire field")
+  func failedToolResultEncoding() async throws {
+    let tool = try ProviderToolDefinition(
+      name: "lookup_weather",
+      description: "looks up weather",
+      inputSchema: ["type": "object"]
+    )
+    let failedResult = ProviderMessageContent.toolResult(
+      callID: "call-1",
+      name: "lookup_weather",
+      value: ["message": "service unavailable"],
+      isError: true
+    )
+    let messages = [
+      try ProviderMessage(role: .user, text: "weather in Seoul"),
+      try ProviderMessage(
+        role: .assistant,
+        content: [.toolCall(callID: "call-1", name: "lookup_weather", arguments: ["city": "Seoul"])]
+      ),
+      try ProviderMessage(role: .tool, content: [failedResult]),
+    ]
+    func request(_ providerID: ProviderID) throws -> ProviderTurnRequest {
+      try ProviderTurnRequest(
+        id: ProviderRequestID("failed-tool-history"),
+        selection: ProviderSelection(
+          providerID: providerID,
+          accountID: ProviderAccountID("account-1"),
+          modelID: ProviderModelID("vendor/model")
+        ),
+        messages: messages,
+        tools: [tool],
+        constraints: ProviderRequestConstraints()
+      )
+    }
+
+    let anthropic = try await encodedBody(
+      AnthropicMessagesAdapter(kind: .anthropic), request: request(BuiltInProviderID.anthropic)
+    )
+    let anthropicResult = try #require(
+      anthropic["messages"]?.arrayValue?.flatMap { $0["content"]?.arrayValue ?? [] }
+        .first { $0["type"]?.stringValue == "tool_result" }
+    )
+    #expect(anthropicResult["is_error"]?.boolValue == true)
+
+    let miniMax = try await encodedBody(
+      AnthropicMessagesAdapter(kind: .miniMax), request: request(BuiltInProviderID.miniMax)
+    )
+    let miniMaxResult = try #require(
+      miniMax["messages"]?.arrayValue?.flatMap { $0["content"]?.arrayValue ?? [] }
+        .first { $0["type"]?.stringValue == "tool_result" }
+    )
+    #expect(miniMaxResult["content"]?.stringValue?.contains("service unavailable") == true)
+    #expect(miniMaxResult["is_error"] == nil)
+    #expect(!String(decoding: try miniMax.encodedData(), as: UTF8.self).contains("\"is_error\""))
+
+    let responses = try await encodedBody(
+      OpenAIResponsesAdapter(kind: .openAI), request: request(BuiltInProviderID.openAI)
+    )
+    let responseOutput = try #require(
+      responses["input"]?.arrayValue?.first { $0["type"]?.stringValue == "function_call_output" }
+    )
+    #expect(responseOutput["output"]?.stringValue?.contains("service unavailable") == true)
+    #expect(responseOutput["is_error"] == nil)
+
+    let chat = try await encodedBody(
+      OpenAIChatAdapter(kind: .openRouter), request: request(BuiltInProviderID.openRouter)
+    )
+    let chatResult = try #require(
+      chat["messages"]?.arrayValue?.first { $0["tool_call_id"]?.stringValue == "call-1" }
+    )
+    #expect(chatResult["content"]?.stringValue?.contains("service unavailable") == true)
+    #expect(chatResult["is_error"] == nil)
+
+    let geminiContinuation = try ProviderContinuation(
+      providerID: BuiltInProviderID.gemini,
+      accountID: ProviderAccountID("account-1"),
+      value: "interaction-1"
+    )
+    let geminiConstraints = try ProviderRequestConstraints(
+      dataCollection: .allow,
+      requiresZeroDataRetention: false
+    )
+    let geminiRequest = try ProviderTurnRequest(
+      id: ProviderRequestID("failed-tool-gemini-history"),
+      selection: ProviderSelection(
+        providerID: BuiltInProviderID.gemini,
+        accountID: ProviderAccountID("account-1"),
+        modelID: ProviderModelID("vendor/model")
+      ),
+      messages: [
+        try ProviderMessage(role: .user, text: "weather in Seoul"),
+        try ProviderMessage(role: .tool, content: [failedResult]),
+      ],
+      tools: [tool],
+      continuation: geminiContinuation,
+      constraints: geminiConstraints
+    )
+    let gemini = try await encodedBody(
+      GeminiInteractionsAdapter(), request: geminiRequest
+    )
+    #expect(gemini["previous_interaction_id"]?.stringValue == "interaction-1")
+    let geminiResult = try #require(
+      gemini["input"]?.arrayValue?.first { $0["type"]?.stringValue == "function_result" }
+    )
+    let geminiResultContent = geminiResult.value(at: "result", "content")?.arrayValue
+    #expect(
+      geminiResultContent?.contains {
+        $0["text"]?.stringValue?.contains("service unavailable") == true
+      } == true
+    )
+    #expect(geminiResult["is_error"] == nil)
+    #expect(!String(decoding: try gemini.encodedData(), as: UTF8.self).contains("\"is_error\""))
+  }
+
   @Test("Runtime rejects a provider tool call that was not declared")
   func runtimeRejectsUndeclaredProviderTool() async throws {
     let account = try ProviderAccountID("account-1")

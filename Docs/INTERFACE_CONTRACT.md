@@ -22,12 +22,20 @@ choice가 `.automatic`으로 조용히 낮아지므로, 왕복 보존은 회귀 
 ## Tool round trip and trust boundary
 
 caller-owned history에서 tool을 실행한 뒤에는 assistant의 `.toolCall(callID:name:arguments:)`와
-그에 대응하는 `.toolResult`를 순서대로 보존해야 한다. Runtime은 이번 turn에 선언하지 않은
+그에 대응하는 `.toolResult`를 순서대로 보존해야 한다. `.toolResult`는 선택적
+`isError` 표식(기본값 `false`)을 가지며, Codable에서는 `is_error` 키로 보존한다.
+기존 저장 payload에 이 키가 없으면 `false`로 읽고, 새 payload에는 `false`도 직렬화한다.
+Runtime은 이번 turn에 선언하지 않은
 provider tool name과 `.named` choice 밖의 tool call을 malformed response로 거부한다. arguments는
 항상 untrusted provider input이다. `inputSchema`는 provider wire 제약이며, 실제 tool 실행자는
 자신의 권한·입력 검증을 별도로 적용해야 한다.
 
 OpenAI Responses·OpenAI-compatible chat·Anthropic Messages는 이 history pair를 wire에 보존한다.
+오류 표식이 `true`인 결과는 Anthropic의 qualified Messages dialect에서만 `is_error: true`로
+전송된다. MiniMax-compatible Messages, Responses·Chat Completions는 기존 tool-result
+payload를 유지하고 비공식 오류 필드를 추가하지 않는다. Gemini Interactions도 retention
+opt-in된 qualified server-side continuation에서 `function_result` payload를 유지하지만
+`is_error`를 추가하지 않는다.
 Gemini stateless tool history는 provider가 반환한 모든 step(예: thought/signature)을 정확히
 보존해야 하므로 이 public 모델로 재구성하지 않으며, assistant tool-call history를 fail-closed한다.
 

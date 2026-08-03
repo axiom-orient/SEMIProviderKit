@@ -72,7 +72,12 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
   /// Callers append this to caller-owned history before appending the matching
   /// `toolResult`, so stateless provider requests preserve the tool round trip.
   case toolCall(callID: String, name: String, arguments: ProviderJSONValue)
-  case toolResult(callID: String, name: String, value: ProviderJSONValue)
+  case toolResult(
+    callID: String,
+    name: String,
+    value: ProviderJSONValue,
+    isError: Bool = false
+  )
 
   private enum CodingKeys: String, CodingKey {
     case type
@@ -80,6 +85,7 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
     case callID = "call_id"
     case name
     case value
+    case isError = "is_error"
   }
 
   private enum Kind: String, Codable {
@@ -103,7 +109,8 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
       self = .toolResult(
         callID: try container.decode(String.self, forKey: .callID),
         name: try container.decode(String.self, forKey: .name),
-        value: try container.decode(ProviderJSONValue.self, forKey: .value)
+        value: try container.decode(ProviderJSONValue.self, forKey: .value),
+        isError: try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
       )
     }
   }
@@ -119,11 +126,12 @@ public enum ProviderMessageContent: Codable, Equatable, Sendable {
       try container.encode(callID, forKey: .callID)
       try container.encode(name, forKey: .name)
       try container.encode(arguments, forKey: .value)
-    case .toolResult(let callID, let name, let value):
+    case .toolResult(let callID, let name, let value, let isError):
       try container.encode(Kind.toolResult, forKey: .type)
       try container.encode(callID, forKey: .callID)
       try container.encode(name, forKey: .name)
       try container.encode(value, forKey: .value)
+      try container.encode(isError, forKey: .isError)
     }
   }
 }
@@ -174,7 +182,7 @@ public struct ProviderMessage: Codable, Equatable, Sendable {
             message: "tool call content requires the assistant message role"
           )
         }
-      case .toolResult(let callID, let name, let value):
+      case .toolResult(let callID, let name, let value, _):
         try Self.validateToolCallID(callID)
         try Self.validateToolName(name)
         _ = try value.validated()
@@ -582,7 +590,7 @@ public struct ProviderTurnRequest: Codable, Equatable, Sendable {
             )
           }
           calls[callID] = name
-        case .toolResult(let callID, let name, _):
+        case .toolResult(let callID, let name, _, _):
           if let expectedName = calls[callID] {
             guard expectedName == name else {
               throw ProviderCoreError(

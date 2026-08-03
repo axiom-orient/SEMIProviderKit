@@ -167,12 +167,14 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
       }
       if message.role == .tool {
         let blocks: [ProviderJSONValue] = try message.content.compactMap { item in
-          guard case .toolResult(let callID, _, let value) = item else { return nil }
-          return [
+          guard case .toolResult(let callID, _, let value, let isError) = item else { return nil }
+          var block: [String: ProviderJSONValue] = [
             "type": "tool_result",
             "tool_use_id": .string(callID),
             "content": .string(String(decoding: try value.encodedData(), as: UTF8.self)),
           ]
+          if kind == .anthropic, isError { block["is_error"] = .bool(true) }
+          return .object(block)
         }
         if !blocks.isEmpty { messages.append(["role": "user", "content": .array(blocks)]) }
         continue
