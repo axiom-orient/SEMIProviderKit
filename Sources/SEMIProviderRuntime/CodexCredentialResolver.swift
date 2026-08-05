@@ -8,7 +8,7 @@ package struct CodexResolvedCredential: Sendable {
 }
 
 /// Resolves caller-owned Codex credential material before a Responses request is built.
-/// File security and client-version discovery stay outside the wire codec.
+/// File security stays outside the wire codec; the package declares its own protocol version.
 package enum CodexCredentialResolver {
   private static let maximumAuthBytes = 1 * 1_024 * 1_024
 
@@ -40,7 +40,7 @@ package enum CodexCredentialResolver {
       throw ProviderFailure(
         code: .authenticationFailed, message: "Codex auth.json contains an invalid access token")
     }
-    let version = try await CodexClientVersion.resolve(authURL: authURL)
+    let version = CodexClientVersion.resolve()
     return .init(accessToken: accessToken, accountID: accountID, clientVersion: version)
   }
 }

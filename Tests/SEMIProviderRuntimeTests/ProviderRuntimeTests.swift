@@ -144,10 +144,8 @@ struct ProviderRuntimeTests {
     defer { try? FileManager.default.removeItem(at: directory) }
 
     let auth = directory.appendingPathComponent("auth.json")
-    let version = directory.appendingPathComponent("version.json")
     try Data(#"{"tokens":{"access_token":"token\r\nInjected: value","account_id":"account"}}"#.utf8)
       .write(to: auth)
-    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(to: version)
 
     let request = try makeRequest(providerID: BuiltInProviderID.codex)
     let record = ProviderCredentialRecord(
@@ -171,67 +169,9 @@ struct ProviderRuntimeTests {
     }
   }
 
-  @Test(
-    "Codex client version uses managed metadata and falls back to an installed Codex executable"
-  )
-  func codexClientVersionResolution() async throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("providerkit-codex-version-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    let auth = directory.appendingPathComponent("auth.json")
-    try Data("{}".utf8).write(to: auth)
-    let executable = directory.appendingPathComponent("codex")
-    try Data("#!/bin/sh\nprintf 'codex-cli 9.8.7-test\\n'\n".utf8).write(to: executable)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: NSNumber(value: Int16(0o700))],
-      ofItemAtPath: executable.path
-    )
-
-    #expect(
-      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
-        == "9.8.7-test"
-    )
-
-    let version = directory.appendingPathComponent("version.json")
-    try Data(#"{"latest_version":"1.2.3-managed"}"#.utf8).write(to: version)
-    #expect(
-      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
-        == "1.2.3-managed"
-    )
-  }
-
-  @Test("A wedged Codex installation cannot stall a turn or its deadline")
-  func codexClientVersionProbeIsBounded() async throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("providerkit-codex-hang-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    let auth = directory.appendingPathComponent("auth.json")
-    try Data("{}".utf8).write(to: auth)
-    // Never prints a version and never exits on its own.
-    let executable = directory.appendingPathComponent("codex")
-    try Data("#!/bin/sh\nsleep 600\n".utf8).write(to: executable)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: NSNumber(value: Int16(0o700))],
-      ofItemAtPath: executable.path
-    )
-
-    // Resolution must be abandonable by the caller rather than blocking whoever
-    // awaits it, which is what would starve the execution deadline watcher.
-    let probe = Task {
-      try await CodexClientVersion.resolve(authURL: auth, embeddedCodexURL: executable)
-    }
-    try await Task.sleep(for: .milliseconds(200))
-    probe.cancel()
-    do {
-      _ = try await probe.value
-      Issue.record("a wedged Codex probe resolved a version")
-    } catch {
-      // Cancelled or bounded failure: either way the turn is released.
-    }
+  @Test("Codex client version is declared and does not inspect the host")
+  func codexClientVersionResolution() {
+    #expect(CodexClientVersion.resolve() == "0.144.1")
   }
 
   @Test("Secure credential reader binds validation and read to one file descriptor")
@@ -508,7 +448,7 @@ struct ProviderRuntimeTests {
     #expect(json.value(at: "provider", "require_parameters")?.boolValue == true)
     #expect(json.value(at: "provider", "data_collection")?.stringValue == "deny")
     #expect(json.value(at: "provider", "zdr")?.boolValue == true)
-    #expect(json["stream_options"] == nil)
+    #expect(json.value(at: "stream_options", "include_usage")?.boolValue == true)
   }
 
   @Test("Application-validated JSON uses the strongest qualified provider constraint")
@@ -558,10 +498,7 @@ struct ProviderRuntimeTests {
       #expect(root.value(at: "response_format", "json_schema", "schema") == schema)
     }
 
-    for (providerID, kind) in [
-      (BuiltInProviderID.deepSeek, OpenAIChatAdapter.Kind.deepSeek),
-      (BuiltInProviderID.zai, .zai),
-    ] {
+    for (providerID, kind) in [(BuiltInProviderID.deepSeek, OpenAIChatAdapter.Kind.deepSeek)] {
       let request = try makeRequest(providerID: providerID, output: output)
       let wire = try await OpenAIChatAdapter(kind: kind).makeExecutionRequest(
         request,
@@ -573,6 +510,16 @@ struct ProviderRuntimeTests {
         root["messages"]?.arrayValue?.first?.value(at: "content")?.stringValue?.contains(
           "JSON object") == true)
     }
+
+    let zaiRequest = try makeRequest(providerID: BuiltInProviderID.zai, output: output)
+    let zaiWire = try await AnthropicMessagesAdapter(kind: .zai).makeExecutionRequest(
+      zaiRequest,
+      credential: try lease(for: zaiRequest)
+    )
+    #expect(zaiWire.urlRequest.url?.absoluteString == "https://api.z.ai/api/anthropic/v1/messages")
+    #expect(zaiWire.urlRequest.value(forHTTPHeaderField: "Authorization") == "Bearer secret-key")
+    let zaiRoot = try ProviderJSONValue.decode(from: try #require(zaiWire.urlRequest.httpBody))
+    #expect(zaiRoot["output_config"] == nil)
 
     let qwenRequest = try makeRequest(providerID: BuiltInProviderID.qwen, output: output)
     let qwenEndpoint = try ProviderEndpointConfiguration(
@@ -746,9 +693,6 @@ struct ProviderRuntimeTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let auth = directory.appendingPathComponent("auth.json")
     try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
-    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
-      to: directory.appendingPathComponent("version.json")
-    )
 
     let accountID = try ProviderAccountID("conversation-account")
     let request = try ProviderTurnRequest(
@@ -853,7 +797,7 @@ struct ProviderRuntimeTests {
       OpenAIChatAdapter(kind: .openRouter),
       request: makeRequest(providerID: BuiltInProviderID.openRouter, reasoning: .disabled)
     )
-    #expect(chatDisabled.value(at: "reasoning", "effort")?.stringValue == "none")
+    #expect(chatDisabled.value(at: "reasoning", "enabled")?.boolValue == false)
 
     let geminiDisabled = try await encodedBody(
       GeminiInteractionsAdapter(),
@@ -891,12 +835,11 @@ struct ProviderRuntimeTests {
         request: makeRequest(providerID: BuiltInProviderID.openAI, reasoning: .disabled)
       )
     }
-    await expectCapabilityMismatch {
-      _ = try await encodedBody(
-        OpenAIChatAdapter(kind: .deepSeek),
-        request: makeRequest(providerID: BuiltInProviderID.deepSeek, reasoning: .disabled)
-      )
-    }
+    let deepSeekDisabled = try await encodedBody(
+      OpenAIChatAdapter(kind: .deepSeek),
+      request: makeRequest(providerID: BuiltInProviderID.deepSeek, reasoning: .disabled)
+    )
+    #expect(deepSeekDisabled.value(at: "thinking", "type")?.stringValue == "disabled")
     await expectCapabilityMismatch {
       _ = try await encodedBody(
         AnthropicMessagesAdapter(kind: .miniMax),
@@ -1109,9 +1052,6 @@ struct ProviderRuntimeTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let auth = directory.appendingPathComponent("auth.json")
     try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
-    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
-      to: directory.appendingPathComponent("version.json")
-    )
     let codexLease = ProviderCredentialLease(
       record: ProviderCredentialRecord(
         reference: try ProviderCredentialReference("codex-ref"),
@@ -1160,9 +1100,6 @@ struct ProviderRuntimeTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let auth = directory.appendingPathComponent("auth.json")
     try Data(#"{"tokens":{"access_token":"token","account_id":"account"}}"#.utf8).write(to: auth)
-    try Data(#"{"latest_version":"1.2.3"}"#.utf8).write(
-      to: directory.appendingPathComponent("version.json")
-    )
 
     let account = try ProviderAccountID("codex-account")
     let continuation = try ProviderContinuation(

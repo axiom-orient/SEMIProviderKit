@@ -7,7 +7,6 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     case deepSeek
     case qwen
     case kimi
-    case zai
   }
 
   package let kind: Kind
@@ -44,13 +43,6 @@ package struct OpenAIChatAdapter: ProviderAdapter {
         family: .openAIChatCompletions,
         apiKey: true
       )
-    case .zai:
-      ProviderDescriptorFactory.make(
-        id: BuiltInProviderID.zai,
-        name: "Z.AI",
-        family: .openAIChatCompletions,
-        apiKey: true
-      )
     }
   }
 
@@ -66,6 +58,10 @@ package struct OpenAIChatAdapter: ProviderAdapter {
       "Accept": "text/event-stream",
     ]
     if kind == .openRouter { headers["X-OpenRouter-Title"] = "SEMI" }
+    if kind == .kimi {
+      headers["User-Agent"] = "KimiCLI/1.0"
+      headers["X-Msh-Platform"] = "kimi_cli"
+    }
     return try ProviderWireValidation.makeJSONRequest(
       url: endpoint,
       headers: headers,
@@ -151,7 +147,6 @@ package struct OpenAIChatAdapter: ProviderAdapter {
         message: "Qwen requires an explicit regional compatible-mode endpoint"
       )
     case .kimi: return ProviderEndpointCatalog.kimi
-    case .zai: return ProviderEndpointCatalog.zai
     }
   }
 
@@ -175,12 +170,7 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     case .automatic:
       break
     case .disabled, .effort:
-      guard kind == .openRouter else {
-        throw ProviderFailure(
-          code: .capabilityMismatch,
-          message: "explicit reasoning control is not qualified for this provider dialect"
-        )
-      }
+      break
     }
 
     var messages: [ProviderJSONValue] = []
@@ -232,11 +222,9 @@ package struct OpenAIChatAdapter: ProviderAdapter {
       "messages": .array(messages),
       "stream": true,
     ]
-    if kind != .openRouter {
-      body["stream_options"] = ["include_usage": true]
-    }
+    body["stream_options"] = ["include_usage": true]
     if let maximumOutputTokens = request.constraints.maximumOutputTokens {
-      let key = kind == .openRouter ? "max_completion_tokens" : "max_tokens"
+      let key = kind == .deepSeek ? "max_tokens" : "max_completion_tokens"
       body[key] = .number(Double(maximumOutputTokens))
     }
     if !request.tools.isEmpty {
@@ -263,7 +251,6 @@ package struct OpenAIChatAdapter: ProviderAdapter {
           "function": ["name": .string(name)],
         ]
       }
-      body["parallel_tool_calls"] = false
     }
     switch request.output {
     case .text:
@@ -279,7 +266,7 @@ package struct OpenAIChatAdapter: ProviderAdapter {
             "strict": true,
           ],
         ]
-      case .deepSeek, .qwen, .zai:
+      case .deepSeek, .qwen:
         body["response_format"] = ["type": "json_object"]
         messages.insert(
           [
@@ -303,13 +290,27 @@ package struct OpenAIChatAdapter: ProviderAdapter {
         ],
       ]
     }
-    switch request.reasoning {
-    case .automatic:
+    switch (kind, request.reasoning) {
+    case (_, .automatic):
       break
-    case .disabled:
-      body["reasoning"] = ["effort": "none"]
-    case .effort(let effort):
+    case (.openRouter, .disabled):
+      body["reasoning"] = ["enabled": false]
+    case (.openRouter, .effort(let effort)):
       body["reasoning"] = ["effort": .string(effort.rawValue)]
+    case (.deepSeek, .disabled):
+      body["thinking"] = ["type": "disabled"]
+    case (.deepSeek, .effort):
+      body["thinking"] = ["type": "enabled"]
+      body["reasoning_effort"] = "high"
+    case (.qwen, .disabled):
+      body["enable_thinking"] = false
+    case (.qwen, .effort):
+      body["enable_thinking"] = true
+    case (.kimi, .disabled):
+      body["thinking"] = ["type": "disabled"]
+    case (.kimi, .effort):
+      let forced = request.toolChoice != .automatic && !request.tools.isEmpty
+      body["thinking"] = ["type": forced ? "disabled" : "enabled"]
     }
     if kind == .openRouter {
       body["provider"] = [

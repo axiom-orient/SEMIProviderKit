@@ -11,7 +11,7 @@
 | F-05 | cancel·terminal exactly-once | ProviderKit | admission-ordered session start, execution reducer/session, single session registry with early ID release | immediate cancel, deadline, cleanup, reuse, shutdown, execute/shutdown interleaving tests | PASS |
 | F-06 | bounded backpressure | ProviderKit | bounded mailbox, terminal reserved slot, text batch, bounded transport body buffer | core/runtime mailbox overflow, transport backpressure tests | PASS |
 | F-07 | account readiness inspect | ProviderKit | `verificationRequired → inspect → ready`, credential contract | restart/readiness, invalid/no-op/source mismatch tests | PASS |
-| F-08 | Codex external auth file | ProviderKit | `SecureRegularFileReader`, bounded async managed/installed Codex version resolver, Codex adapter | symlink·size·header injection·version fallback·wedged process tests, account/catalog/turn live flow | PASS |
+| F-08 | Codex external auth file | ProviderKit | `SecureRegularFileReader`, declared Codex wire version, Codex adapter | symlink·size·header injection·declared-version tests, account/catalog/turn live flow | PASS |
 | F-09 | OpenRouter direct 호출 | ProviderKit | direct HTTP/SSE adapter | request/privacy/OAuth fixtures | LIVE_REQUIRED |
 | F-10 | API key 계정 | ProviderKit + 선택적 호출자 저장 adapter | `InMemoryProviderCredentialStore` 또는 `ProviderCredentialStore` 주입 | public in-memory lifecycle + registration transaction tests | LIVE_REQUIRED |
 | F-11 | OAuth 계정 | ProviderKit + Apple | documented OpenRouter PKCE URL, loopback callback state·origin·query validation | PKCE URL shape, callback/replay tests | LIVE_REQUIRED |

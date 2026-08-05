@@ -100,18 +100,14 @@ ProviderKit은 실행 중 파일, 대화 기록, UI state, tool receipt, 문서 
 | --- | --- | --- |
 | `Package.swift`, `Sources/`, `Tests/`, `Scripts/`, `Docs/` | canonical source input | 저장소에서 관리 |
 | Git commit | canonical source identity | clean working tree를 commit으로 고정 |
-| semantic version tag | release identity | 검증된 release commit에만 부여 |
-| release archive와 checksum | 배포 artifact | tagged commit에서 생성하고 checksum은 archive 밖에 게시 |
 | `Package.resolved` | 선택적 dependency resolution 기록 | 생성되면 검토·추적; build cache로 취급하지 않음 |
 | `.build/`, `.swiftpm/`, DerivedData | 재생성 가능한 build output | 저장소에 보존하지 않음 |
 | credential secret | 외부 runtime input | in-memory 또는 호출자 store가 보관; 문서·로그·artifact에 기록 금지 |
 | Codex `auth.json` | caller-managed external input | 경로만 참조; 복사·수정하지 않음 |
 | model event stream | ephemeral output | 호출자가 소비·저장·UI 투영 |
-| `Docs/COMPLETION_REPORT.md` | 검증 기록 | 실제 명령 결과만 기록 |
 
-Git tree가 파일 집합과 내용을 함께 식별한다. release archive는 commit 전 파일 복사본이
-아니라 tagged commit에서 생성한다. archive checksum이나 서명은 archive 내부가 아닌
-release metadata로 게시해 artifact와 독립된 검증 근거를 제공한다.
+Git tree가 파일 집합과 내용을 함께 식별한다. build 산출물과 credential은 source tree에
+기록하지 않으며, 호출자는 필요한 보존 정책을 자신의 제품에서 명시적으로 관리한다.
 
 ## Credential store contract
 

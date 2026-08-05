@@ -4,6 +4,7 @@ import SEMIProviderCore
 package struct AnthropicMessagesAdapter: ProviderAdapter {
   package enum Kind: Equatable, Sendable {
     case anthropic
+    case zai
     case miniMax
   }
 
@@ -25,6 +26,13 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
         family: .anthropicMessages,
         apiKey: true
       )
+    case .zai:
+      ProviderDescriptorFactory.make(
+        id: BuiltInProviderID.zai,
+        name: "Z.AI",
+        family: .anthropicMessages,
+        apiKey: true
+      )
     }
   }
 
@@ -38,22 +46,28 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
         message: "Anthropic Messages does not accept a Responses continuation"
       )
     }
-    if kind == .miniMax, case .jsonSchema = request.output {
+    if kind != .anthropic, case .jsonSchema = request.output {
       throw ProviderFailure(
         code: .capabilityMismatch,
-        message: "native JSON Schema output is not qualified for MiniMax Messages"
+        message: "native JSON Schema output is not qualified for this Messages provider"
       )
     }
-    if case .effort = request.reasoning, kind == .miniMax {
+    if case .effort = request.reasoning, kind != .anthropic {
       throw ProviderFailure(
         code: .capabilityMismatch,
-        message: "explicit reasoning effort is not qualified for MiniMax Messages"
+        message: "explicit reasoning effort is not qualified for this Messages provider"
       )
     }
     let key = try ProviderWireValidation.requireAPIKey(credential)
     let base =
       credential.record.endpoint?.baseURL
-      ?? (kind == .anthropic ? ProviderEndpointCatalog.anthropic : ProviderEndpointCatalog.miniMax)
+      ?? {
+        switch kind {
+        case .anthropic: ProviderEndpointCatalog.anthropic
+        case .zai: ProviderEndpointCatalog.zaiAnthropic
+        case .miniMax: ProviderEndpointCatalog.miniMax
+        }
+      }()
     let endpoint = try ProviderWireValidation.appendPath("/v1/messages", to: base)
     let headers: [String: String]
     switch kind {
@@ -63,7 +77,7 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
         "anthropic-version": "2023-06-01",
         "Accept": "text/event-stream",
       ]
-    case .miniMax:
+    case .zai, .miniMax:
       headers = [
         "Authorization": "Bearer \(key)",
         "anthropic-version": "2023-06-01",
@@ -122,6 +136,10 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
       let base = credential.record.endpoint?.baseURL ?? URL(string: "https://api.minimax.io")!
       endpoint = try ProviderWireValidation.appendPath("/v1/models", to: base)
       headers = ["Authorization": "Bearer \(key)"]
+    case .zai:
+      let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.zaiModels
+      endpoint = try ProviderWireValidation.appendPath("/v1/models", to: base)
+      headers = ["Authorization": "Bearer \(key)", "anthropic-version": "2023-06-01"]
     }
     let constraints = try ProviderRequestConstraints(
       timeoutMilliseconds: 60_000,

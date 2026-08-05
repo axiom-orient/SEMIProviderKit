@@ -111,15 +111,6 @@ terminal은 cleanup 뒤에 공개한다.
 AppKit/Network 부재용 동작 대체 계층은 두지 않는다. Security는 PKCE용 CSPRNG에만
 사용한다.
 
-Codex의 관리된 `version.json` 우선 탐색과 표준 ChatGPT 앱의 embedded Codex version
-탐색은 현재 인증 wire 계약을 충족하기 위한 실사용 경로이므로 유지한다.
-
-embedded executable probe는 subprocess를 쓰므로 `makeExecutionRequest`가 async다.
-동기 호출이면 blocking process I/O가 execution actor를 점유해 deadline watcher와
-cancellation이 실행되지 못한다. probe는 blocking read를 cooperative pool 밖의 dispatch
-queue에서 수행하고, 5초 timeout과 호출자 cancellation 양쪽에서 process를 terminate해
-pipe EOF로 reader를 해제한다. 결과는 executable 경로별로 memoize돼 첫 성공 이후에는
-어떤 turn도 subprocess 비용을 내지 않는다. 공유 unstructured task 대신 inline await를
-쓰는 이유는 공유 task가 첫 호출자 외 모두의 대기를 취소 불가능하게 만들기 때문이다.
-그 대가로 첫 호출이 동시에 발생하면 probe가 중복될 수 있으나, probe는 idempotent하고
-bounded하며 첫 성공 이전에만 도달 가능하다.
+Codex wire version은 `CodexClientVersion`이 패키지 상수로 선언한다.
+`OpenAIResponsesAdapter`는 Responses 요청·SSE codec만 맡는다. 버전 결정은 인접 metadata,
+설치 앱, PATH, subprocess를 읽지 않으므로 같은 입력은 호스트 상태와 무관하게 같은 요청을 만든다.

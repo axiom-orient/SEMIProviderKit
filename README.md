@@ -68,10 +68,10 @@ Codex의 반복 대화는 server-side `ProviderContinuation`이 아니라 caller
 
 | 경로 | 내용 |
 | --- | --- |
-| [`Docs/`](Docs/README.md) | 설계, 인터페이스 계약, 기능 추적, 완료 근거 |
+| [`Docs/`](Docs/README.md) | 설계, 인터페이스 계약, 기능 범위 |
 | [`Sources/`](Sources/) | 세 product의 canonical source |
 | [`Tests/`](Tests/) | Core·Runtime·Apple 회귀 테스트 |
-| [`Scripts/`](Scripts/) | product·target·import 경계 검증 |
+| [`Scripts/`](Scripts/) | 유일한 local verify·clean 진입점과 경계 검증 |
 | [`Package.swift`](Package.swift) | 유일한 build manifest |
 | [`AGENTS.md`](AGENTS.md) | 로컬 검증·릴리스 작업 규칙 |
 | [`.gitignore`](.gitignore) | 재생성·로컬 전용 파일 제외 규칙 |
@@ -80,13 +80,7 @@ Codex의 반복 대화는 server-side `ProviderContinuation`이 아니라 caller
 ## Verification
 
 ```bash
-swift build -Xswiftc -warnings-as-errors
-swift build -c release -Xswiftc -warnings-as-errors
-swift test --parallel -Xswiftc -warnings-as-errors
-swift test --sanitize=thread -Xswiftc -warnings-as-errors
-swift test --sanitize=address -Xswiftc -warnings-as-errors
-swift format lint --recursive Sources Tests
-python3 Scripts/verify-providerkit-boundaries.py
+Scripts/verify.sh
 ```
 
 Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사용하지
@@ -99,9 +93,7 @@ Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사�
 추적한다.
 
 지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
-[`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md), 최종 검증 결과와 제약은
-[`Docs/COMPLETION_REPORT.md`](Docs/COMPLETION_REPORT.md), 현재 릴리스 준비 상태는
-[`Docs/RELEASE_READINESS.md`](Docs/RELEASE_READINESS.md)에 있다.
+[`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md)에 있다.
 
 ## License
 

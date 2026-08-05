@@ -14,7 +14,7 @@ package struct BuiltInProviderRegistry: Sendable {
       OpenAIChatAdapter(kind: .deepSeek),
       OpenAIChatAdapter(kind: .qwen),
       OpenAIChatAdapter(kind: .kimi),
-      OpenAIChatAdapter(kind: .zai),
+      AnthropicMessagesAdapter(kind: .zai),
       AnthropicMessagesAdapter(kind: .miniMax),
     ]
     self.adapters = Dictionary(uniqueKeysWithValues: values.map { ($0.descriptor.id, $0) })
@@ -42,8 +42,9 @@ package enum ProviderEndpointCatalog {
   package static let gemini = URL(string: "https://generativelanguage.googleapis.com")!
   package static let openRouter = URL(string: "https://openrouter.ai/api/v1")!
   package static let deepSeek = URL(string: "https://api.deepseek.com")!
-  package static let kimi = URL(string: "https://api.moonshot.ai/v1")!
-  package static let zai = URL(string: "https://api.z.ai/api/paas/v4")!
+  package static let kimi = URL(string: "https://api.kimi.com/coding/v1")!
+  package static let zaiAnthropic = URL(string: "https://api.z.ai/api/anthropic")!
+  package static let zaiModels = URL(string: "https://api.z.ai/api/paas/v4")!
   package static let miniMax = URL(string: "https://api.minimax.io/anthropic")!
 }
 
