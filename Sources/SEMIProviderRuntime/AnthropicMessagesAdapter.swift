@@ -392,10 +392,11 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
       case "tool_use":
         guard let id = root.value(at: "content_block", "id")?.stringValue,
           let name = root.value(at: "content_block", "name")?.stringValue,
-          tools[index] == nil
+          tools[index] == nil,
+          emittedToolCount + tools.count < ProviderTurnRequest.maximumTools
         else {
           throw ProviderFailure(
-            code: .malformedResponse, message: "Messages tool block is missing its identity")
+            code: .malformedResponse, message: "Messages tool block is invalid or exceeds its limit")
         }
         activeBlocks[index] = .tool
         tools[index] = ToolState(

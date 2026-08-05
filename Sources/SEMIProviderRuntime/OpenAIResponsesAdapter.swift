@@ -366,7 +366,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     case "response.output_item.added":
       guard root.value(at: "item", "type")?.stringValue == "function_call" else { return [] }
       let key = try toolKey(root)
-      var state = tools[key] ?? ToolState()
+      var state = try toolState(for: key)
       state.callID = root.value(at: "item", "call_id")?.stringValue ?? state.callID
       state.name = root.value(at: "item", "name")?.stringValue ?? state.name
       if let arguments = root.value(at: "item", "arguments")?.stringValue, !arguments.isEmpty {
@@ -376,13 +376,13 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       return []
     case "response.function_call_arguments.delta":
       let key = try toolKey(root)
-      var state = tools[key] ?? ToolState()
+      var state = try toolState(for: key)
       if let delta = root["delta"]?.stringValue { try state.arguments.append(delta) }
       tools[key] = state
       return []
     case "response.function_call_arguments.done":
       let key = try toolKey(root)
-      var state = tools[key] ?? ToolState()
+      var state = try toolState(for: key)
       if let arguments = root["arguments"]?.stringValue {
         try state.arguments.replace(with: arguments)
       }
@@ -391,7 +391,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     case "response.output_item.done":
       guard root.value(at: "item", "type")?.stringValue == "function_call" else { return [] }
       let key = try toolKey(root)
-      var state = tools[key] ?? ToolState()
+      var state = try toolState(for: key)
       state.callID = root.value(at: "item", "call_id")?.stringValue ?? state.callID
       state.name = root.value(at: "item", "name")?.stringValue ?? state.name
       if let arguments = root.value(at: "item", "arguments")?.stringValue {
@@ -478,9 +478,19 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     return "index:\(index)"
   }
 
+  private func toolState(for key: String) throws -> ToolState {
+    guard tools[key] != nil || tools.count < ProviderTurnRequest.maximumTools else {
+      throw ProviderFailure(
+        code: .malformedResponse,
+        message: "Responses stream exceeded tool-call state limit"
+      )
+    }
+    return tools[key] ?? ToolState()
+  }
+
   private func emitTool(key: String) throws -> [ProviderDecodedEvent] {
     guard var state = tools[key], !state.emitted else { return [] }
-    guard let callID = state.callID ?? (key.hasPrefix("index:") ? nil : key),
+    guard let callID = state.callID,
       let name = state.name
     else {
       throw ProviderFailure(

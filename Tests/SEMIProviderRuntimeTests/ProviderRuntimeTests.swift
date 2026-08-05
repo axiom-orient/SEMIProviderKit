@@ -771,6 +771,62 @@ struct ProviderRuntimeTests {
     }
   }
 
+  @Test("Responses never substitutes an item ID for a tool call ID")
+  func responsesItemIDIsNotAToolCallID() throws {
+    let decoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+      for: makeRequest(providerID: BuiltInProviderID.openAI)
+    )
+    _ = try decoder.consume(
+      .init(
+        event: "response.output_item.added",
+        data:
+          #"{"type":"response.output_item.added","item":{"type":"function_call","id":"item-1","name":"lookup"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      )
+    )
+    #expect(throws: ProviderFailure.self) {
+      _ = try decoder.consume(
+        .init(
+          event: "response.function_call_arguments.done",
+          data:
+            #"{"type":"response.function_call_arguments.done","item_id":"item-1","arguments":"{}"}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      )
+    }
+  }
+
+  @Test("Responses bounds the number of active tool states")
+  func responsesToolStateIsBounded() throws {
+    let decoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+      for: makeRequest(providerID: BuiltInProviderID.openAI)
+    )
+    for index in 0..<ProviderTurnRequest.maximumTools {
+      _ = try decoder.consume(
+        .init(
+          event: "response.output_item.added",
+          data:
+            #"{"type":"response.output_item.added","item":{"type":"function_call","id":"item-\#(index)","call_id":"call-\#(index)","name":"lookup"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      )
+    }
+    #expect(throws: ProviderFailure.self) {
+      _ = try decoder.consume(
+        .init(
+          event: "response.output_item.added",
+          data:
+            #"{"type":"response.output_item.added","item":{"type":"function_call","id":"item-overflow","call_id":"call-overflow","name":"lookup"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      )
+    }
+  }
+
   @Test("Reasoning policy is either encoded on the wire or rejected, never dropped")
   func reasoningPolicyEncoding() async throws {
     // `.automatic` means "use the provider default", so no dialect may force a

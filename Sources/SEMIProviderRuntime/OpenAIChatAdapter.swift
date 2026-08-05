@@ -431,6 +431,12 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
           defaultValue: 0,
           field: "chat tool-call index"
         )
+        guard tools[index] != nil || tools.count < ProviderTurnRequest.maximumTools else {
+          throw ProviderFailure(
+            code: .malformedResponse,
+            message: "chat stream exceeded tool-call state limit"
+          )
+        }
         var state = tools[index] ?? ToolState()
         if let value = rawCall["id"] {
           state.id = try optionalString(value, field: "chat tool call id") ?? state.id
