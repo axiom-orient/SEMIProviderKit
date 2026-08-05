@@ -95,6 +95,14 @@ Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사�
 지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
 [`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md)에 있다.
 
+## 공개 경계
+
+소스 공개에는 `Package.swift`, `Sources/`, `Tests/`, `Scripts/`, `Docs/`,
+`LICENSE`만 포함한다. SwiftPM build cache, Xcode 개인 상태, sanitizer·coverage
+결과, 로그와 local environment는 배포 입력이 아니다. 배포 후보는 같은 clean
+commit을 `git archive`로 추출해 local build·test·boundary gate를 다시 통과한
+경우에만 검토하며, GitHub Actions와 원격 CI는 증거로 사용하지 않는다.
+
 ## License
 
 SEMIProviderKit is available under the [MIT License](LICENSE).
