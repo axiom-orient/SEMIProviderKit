@@ -494,7 +494,7 @@ package enum ProviderWireValidation {
         throw malformedCatalog("model entry \(index) has no valid identifier")
       }
       guard seen.insert(id).inserted else {
-        throw malformedCatalog("model catalog contains duplicate identifier \(rawID)")
+        throw malformedCatalog("model catalog contains duplicate identifiers")
       }
 
       let displayName = try optionalString(

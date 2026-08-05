@@ -488,7 +488,7 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
     default:
       throw ProviderFailure(
         code: .malformedResponse,
-        message: "chat stream ended with unsupported finish reason \(finishReason)"
+        message: "chat stream ended with an unsupported finish reason"
       )
     }
     completed = true

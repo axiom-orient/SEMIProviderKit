@@ -2435,6 +2435,22 @@ struct ProviderRuntimeTests {
         )
       }
     }
+    do {
+      _ = try ProviderWireValidation.parseModelCatalog(
+        data: Data(
+          #"{"data":[{"id":"catalog-secret"},{"id":"catalog-secret"}]}"#.utf8
+        ),
+        candidateArrays: [["data"]],
+        idKeys: ["id"],
+        capabilities: ProviderCapabilities(),
+        refreshedAt: Date(timeIntervalSince1970: 1)
+      )
+      Issue.record("duplicate model catalog was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "model catalog contains duplicate identifiers")
+      #expect(!failure.message.contains("catalog-secret"))
+    }
     let catalog = try ProviderWireValidation.parseModelCatalog(
       data: Data(
         #"{"data":[{"id":"model-a","context_length":131072,"top_provider":{"max_completion_tokens":32768}},{"id":"model-b","max_tokens":64000}]}"#
@@ -2471,6 +2487,30 @@ struct ProviderRuntimeTests {
           id: nil,
           retryMilliseconds: nil
         ))
+    }
+  }
+
+  @Test("Gemini model catalog duplicate diagnostics are redacted")
+  func geminiModelCatalogDuplicateRedaction() async throws {
+    let request = try makeRequest(providerID: BuiltInProviderID.gemini)
+    let transport = ScriptedTransport(scripts: [
+      .json(
+        status: 200,
+        body:
+          #"{"models":[{"name":"models/gemini-catalog-secret"},{"name":"models/gemini-catalog-secret"}]}"#
+      )
+    ])
+    do {
+      _ = try await GeminiInteractionsAdapter().models(
+        credential: try lease(for: request),
+        transport: transport,
+        clock: SystemProviderClock()
+      )
+      Issue.record("Gemini duplicate model catalog was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "Gemini model catalog contains duplicate identifiers")
+      #expect(!failure.message.contains("gemini-catalog-secret"))
     }
   }
 
@@ -3098,6 +3138,103 @@ struct ProviderRuntimeTests {
       Issue.record("Gemini failure was accepted as completion")
     } catch let failure as ProviderFailure {
       #expect(failure.code == .serverFailed)
+      #expect(failure.message == "Gemini interaction ended unsuccessfully")
+    }
+  }
+
+  @Test("Remote termination values never enter public failure messages")
+  func providerTerminationValueRedaction() throws {
+    let sentinel = "remote-termination-sentinel"
+
+    do {
+      let decoder = try OpenAIChatAdapter(kind: .openRouter).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.openRouter)
+      )
+      _ = try decoder.consume(
+        .init(
+          event: nil,
+          data:
+            #"{"choices":[{"index":0,"delta":{},"finish_reason":"remote-termination-sentinel"}]}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      _ = try decoder.consume(.init(event: nil, data: "[DONE]", id: nil, retryMilliseconds: nil))
+      Issue.record("chat unsupported finish reason was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "chat stream ended with an unsupported finish reason")
+      #expect(!failure.message.contains(sentinel))
+    }
+
+    do {
+      let decoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.anthropic)
+      )
+      _ = try decoder.consume(
+        .init(
+          event: "message_start",
+          data: #"{"type":"message_start","message":{"id":"termination"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      _ = try decoder.consume(
+        .init(
+          event: "message_delta",
+          data:
+            #"{"type":"message_delta","delta":{"stop_reason":"remote-termination-sentinel"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      _ = try decoder.consume(
+        .init(
+          event: "message_stop",
+          data: #"{"type":"message_stop"}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      Issue.record("Messages unsupported stop reason was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "Messages stream ended with an unsupported stop reason")
+      #expect(!failure.message.contains(sentinel))
+    }
+
+    do {
+      let decoder = try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.openAI)
+      )
+      _ = try decoder.consume(
+        .init(
+          event: "response.completed",
+          data:
+            #"{"type":"response.completed","response":{"id":"termination","status":"remote-termination-sentinel"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      Issue.record("Responses unsuccessful status was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "provider emitted response.completed with an unsuccessful status")
+      #expect(!failure.message.contains(sentinel))
+    }
+
+    do {
+      let decoder = try GeminiInteractionsAdapter().makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.gemini)
+      )
+      _ = try decoder.consume(
+        .init(
+          event: "interaction.completed",
+          data:
+            #"{"event_type":"interaction.completed","interaction":{"id":"termination","status":"remote-termination-sentinel"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      Issue.record("Gemini unsupported status was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "Gemini interaction ended with an unsupported status")
+      #expect(!failure.message.contains(sentinel))
     }
   }
 

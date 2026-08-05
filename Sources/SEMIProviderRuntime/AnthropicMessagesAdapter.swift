@@ -532,7 +532,7 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
       default:
         throw ProviderFailure(
           code: .malformedResponse,
-          message: "Messages stream ended with unsupported stop reason \(stopReason)"
+          message: "Messages stream ended with an unsupported stop reason"
         )
       }
       stopped = true

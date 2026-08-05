@@ -125,7 +125,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       guard seen.insert(id).inserted else {
         throw ProviderFailure(
           code: .malformedResponse,
-          message: "Gemini model catalog contains duplicate identifier \(rawID)")
+          message: "Gemini model catalog contains duplicate identifiers")
       }
       let displayName: String?
       if let value = value["displayName"] {
@@ -499,7 +499,7 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
         }
       case "failed", "incomplete", "budget_exceeded":
         throw ProviderFailure(
-          code: .serverFailed, message: "Gemini interaction ended with status \(status!)")
+          code: .serverFailed, message: "Gemini interaction ended unsuccessfully")
       case "cancelled":
         throw ProviderFailure(code: .cancelled, message: "Gemini interaction was cancelled")
       case "queued", "in_progress":
@@ -508,7 +508,7 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
       default:
         throw ProviderFailure(
           code: .malformedResponse,
-          message: "Gemini interaction ended with status \(status ?? "unknown")")
+          message: "Gemini interaction ended with an unsupported status")
       }
       let usage = try parseUsage(interaction?["usage"])
       let continuation: ProviderContinuation?

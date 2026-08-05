@@ -408,7 +408,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
       if let status = response["status"]?.stringValue, status != "completed" {
         throw ProviderFailure(
           code: .malformedResponse,
-          message: "provider emitted response.completed with status \(status)"
+          message: "provider emitted response.completed with an unsuccessful status"
         )
       }
       guard tools.values.allSatisfy(\.emitted) else {
