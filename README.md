@@ -42,7 +42,7 @@ for await event in await runtime.register(registrationRequest) {
 let stream = await runtime.execute(turnRequest)
 
 for await event in stream {
-  // started, textDelta, toolCall, terminal
+  // started, textDelta, reasoningDelta, toolCall, terminal
 }
 ```
 

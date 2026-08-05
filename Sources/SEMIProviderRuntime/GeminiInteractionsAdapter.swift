@@ -39,9 +39,16 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
   }
 
   package func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder {
-    GeminiInteractionsStreamDecoder(
+    let allowsDisplayableReasoning: Bool
+    if case .effort = request.reasoning {
+      allowsDisplayableReasoning = true
+    } else {
+      allowsDisplayableReasoning = false
+    }
+    return GeminiInteractionsStreamDecoder(
       selection: request.selection,
-      exposesContinuation: ProviderWireValidation.storesServerSideResponse(request)
+      exposesContinuation: ProviderWireValidation.storesServerSideResponse(request),
+      allowsDisplayableReasoning: allowsDisplayableReasoning
     )
   }
 
@@ -203,20 +210,25 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       }
       if message.role == .tool {
         for content in message.content {
-          guard case .toolResult(let callID, let name, let value, _) = content else { continue }
-          input.append([
+          guard case .toolResult(let callID, let name, let value, let isError) = content else {
+            continue
+          }
+          let result: [String: ProviderJSONValue] = [
+            "content": [
+              [
+                "type": "text",
+                "text": .string(String(decoding: try value.encodedData(), as: UTF8.self)),
+              ]
+            ]
+          ]
+          var functionResult: [String: ProviderJSONValue] = [
             "type": "function_result",
             "name": .string(name),
             "call_id": .string(callID),
-            "result": [
-              "content": [
-                [
-                  "type": "text",
-                  "text": .string(String(decoding: try value.encodedData(), as: UTF8.self)),
-                ]
-              ]
-            ],
-          ])
+            "result": .object(result),
+          ]
+          if isError { functionResult["is_error"] = .bool(true) }
+          input.append(.object(functionResult))
         }
         continue
       }
@@ -294,6 +306,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       break
     case .effort(let effort):
       generationConfig["thinking_level"] = .string(effort.rawValue)
+      generationConfig["thinking_summaries"] = "auto"
     }
     if !generationConfig.isEmpty { body["generation_config"] = .object(generationConfig) }
     return .object(body)
@@ -317,15 +330,21 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
 
   private let selection: ProviderSelection
   private let exposesContinuation: Bool
+  private let allowsDisplayableReasoning: Bool
   private var responseID: String?
   private var steps: [Int: StepState] = [:]
   private var completion: ProviderCompletionDraft?
   private var emittedToolCount = 0
   private var sawDone = false
 
-  init(selection: ProviderSelection, exposesContinuation: Bool) {
+  init(
+    selection: ProviderSelection,
+    exposesContinuation: Bool,
+    allowsDisplayableReasoning: Bool
+  ) {
     self.selection = selection
     self.exposesContinuation = exposesContinuation
+    self.allowsDisplayableReasoning = allowsDisplayableReasoning
   }
 
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent] {
@@ -431,6 +450,7 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
             code: .malformedResponse,
             message: "Gemini thought summary belongs to a non-thought step")
         }
+        guard allowsDisplayableReasoning else { return [] }
         guard let text = root.value(at: "delta", "content", "text")?.stringValue,
           !text.isEmpty
         else { return [] }
@@ -511,7 +531,7 @@ private final class GeminiInteractionsStreamDecoder: ProviderStreamDecoder {
     case "error":
       throw ProviderFailure(
         code: .serverFailed,
-        message: root.value(at: "error", "message")?.stringValue ?? "Gemini interaction failed"
+        message: "Gemini stream failed"
       )
     case .none:
       throw ProviderFailure(code: .malformedResponse, message: "Gemini SSE event has no type")

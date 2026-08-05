@@ -179,8 +179,12 @@ package enum ProviderWireError {
       return .init(
         code: .malformedResponse, message: "provider returned an invalid HTTP response",
         requestID: requestID)
-    case .transport(let message):
-      return .init(code: .transportFailed, message: message, requestID: requestID)
+    case .transport:
+      return .init(
+        code: .transportFailed,
+        message: "provider transport failed",
+        requestID: requestID
+      )
     case nil:
       return .init(
         code: .transportFailed,
@@ -246,12 +250,10 @@ package enum ProviderWireError {
   package static func httpFailure(
     statusCode: Int,
     headers: [String: String],
-    body: Data,
+    body _: Data,
     requestID: ProviderRequestID? = nil,
     now: Date
   ) -> ProviderFailure {
-    let message =
-      providerErrorMessage(body) ?? HTTPURLResponse.localizedString(forStatusCode: statusCode)
     let code: ProviderFailureCode
     switch statusCode {
     case 400, 409, 422: code = .invalidRequest
@@ -266,21 +268,11 @@ package enum ProviderWireError {
     }
     return .init(
       code: code,
-      message: message,
+      message: "provider HTTP request failed with status \(statusCode)",
       providerStatusCode: statusCode,
       retryAfterMilliseconds: retryAfterMilliseconds(headers: headers, now: now),
       requestID: requestID
     )
-  }
-
-  private static func providerErrorMessage(_ data: Data) -> String? {
-    guard !data.isEmpty, data.count <= ProviderJSONValue.maximumEncodedBytes,
-      let root = try? ProviderJSONValue.decode(from: data)
-    else { return nil }
-    return root.value(at: "error", "message")?.stringValue
-      ?? root["message"]?.stringValue
-      ?? root.value(at: "error", "type")?.stringValue
-      ?? root["error"]?.stringValue
   }
 
   private static func retryAfterMilliseconds(

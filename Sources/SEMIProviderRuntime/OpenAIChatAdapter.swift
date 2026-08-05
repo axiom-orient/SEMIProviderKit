@@ -333,6 +333,7 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
   private var responseID: String?
   private var usage: ProviderUsage?
   private var finishReason: String?
+  private var reasoningAlias: String?
   private var tools: [Int: ToolState] = [:]
   private var completed = false
 
@@ -342,10 +343,10 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
       Data(event.data.utf8),
       field: "OpenAI chat stream JSON"
     )
-    if let error = root["error"] {
+    if root["error"] != nil {
       throw ProviderFailure(
         code: .serverFailed,
-        message: error["message"]?.stringValue ?? error.stringValue ?? "provider stream failed"
+        message: "provider stream failed"
       )
     }
     _ = try ProviderWireValidation.object(root, field: "chat stream event")
@@ -394,6 +395,14 @@ private final class OpenAIChatStreamDecoder: ProviderStreamDecoder {
         output.append(.textDelta(content))
       }
       for field in ["reasoning_content", "reasoning", "reasoning_text"] {
+        guard delta[field] != nil else { continue }
+        if let reasoningAlias, reasoningAlias != field {
+          throw ProviderFailure(
+            code: .malformedResponse,
+            message: "chat stream changed reasoning field mid-response"
+          )
+        }
+        self.reasoningAlias = reasoningAlias ?? field
         guard let rawReasoning = delta[field] else { continue }
         if let reasoning = try optionalString(rawReasoning, field: "chat reasoning"),
           !reasoning.isEmpty

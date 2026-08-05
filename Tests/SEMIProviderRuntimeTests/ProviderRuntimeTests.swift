@@ -332,7 +332,7 @@ struct ProviderRuntimeTests {
     }
   }
 
-  @Test("Failed tool results use an Anthropic-only qualified wire field")
+  @Test("Failed tool results use each dialect's qualified wire field")
   func failedToolResultEncoding() async throws {
     let tool = try ProviderToolDefinition(
       name: "lookup_weather",
@@ -442,8 +442,8 @@ struct ProviderRuntimeTests {
         $0["text"]?.stringValue?.contains("service unavailable") == true
       } == true
     )
-    #expect(geminiResult["is_error"] == nil)
-    #expect(!String(decoding: try gemini.encodedData(), as: UTF8.self).contains("\"is_error\""))
+    #expect(geminiResult["is_error"]?.boolValue == true)
+    #expect(String(decoding: try gemini.encodedData(), as: UTF8.self).contains("\"is_error\""))
   }
 
   @Test("Runtime rejects a provider tool call that was not declared")
@@ -868,6 +868,21 @@ struct ProviderRuntimeTests {
     )
     #expect(messagesEffort.value(at: "thinking", "type")?.stringValue == "adaptive")
     #expect(messagesEffort.value(at: "output_config", "effort")?.stringValue == "high")
+
+    let geminiAutomatic = try await encodedBody(
+      GeminiInteractionsAdapter(),
+      request: makeRequest(providerID: BuiltInProviderID.gemini, reasoning: .automatic)
+    )
+    #expect(geminiAutomatic.value(at: "generation_config", "thinking_summaries") == nil)
+
+    let geminiEffort = try await encodedBody(
+      GeminiInteractionsAdapter(),
+      request: makeRequest(providerID: BuiltInProviderID.gemini, reasoning: .effort(.high))
+    )
+    #expect(
+      geminiEffort.value(at: "generation_config", "thinking_level")?.stringValue == "high")
+    #expect(
+      geminiEffort.value(at: "generation_config", "thinking_summaries")?.stringValue == "auto")
 
     // Unqualified dialects fail closed instead of silently ignoring the policy.
     await expectCapabilityMismatch {
@@ -2533,6 +2548,84 @@ struct ProviderRuntimeTests {
     #expect(timeout.message == "provider network request timed out")
   }
 
+  @Test("Provider SSE failures never expose remote diagnostics")
+  func providerStreamErrorRedaction() throws {
+    let secret = "secret-provider-diagnostic"
+
+    func assertFailure(
+      _ decoder: any ProviderStreamDecoder,
+      event: ServerSentEvent,
+      code: ProviderFailureCode,
+      message: String
+    ) {
+      do {
+        _ = try decoder.consume(event)
+        Issue.record("provider SSE failure was accepted")
+      } catch let failure as ProviderFailure {
+        #expect(failure.code == code)
+        #expect(failure.message == message)
+        #expect(!failure.message.contains(secret))
+      } catch {
+        Issue.record("unexpected provider SSE error: \(error)")
+      }
+    }
+
+    assertFailure(
+      try OpenAIChatAdapter(kind: .openRouter).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.openRouter)
+      ),
+      event: .init(
+        event: nil,
+        data: #"{"error":{"message":"secret-provider-diagnostic"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ),
+      code: .serverFailed,
+      message: "provider stream failed"
+    )
+    assertFailure(
+      try OpenAIResponsesAdapter(kind: .openAI).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.openAI)
+      ),
+      event: .init(
+        event: "response.failed",
+        data:
+          #"{"type":"response.failed","response":{"error":{"message":"secret-provider-diagnostic"}}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ),
+      code: .serverFailed,
+      message: "provider stream failed"
+    )
+    assertFailure(
+      try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.anthropic)
+      ),
+      event: .init(
+        event: "error",
+        data:
+          #"{"type":"error","error":{"type":"overloaded_error","message":"secret-provider-diagnostic"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ),
+      code: .serverFailed,
+      message: "Messages stream failed"
+    )
+    assertFailure(
+      try GeminiInteractionsAdapter().makeDecoder(
+        for: makeRequest(providerID: BuiltInProviderID.gemini)
+      ),
+      event: .init(
+        event: "error",
+        data: #"{"event_type":"error","error":{"message":"secret-provider-diagnostic"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ),
+      code: .serverFailed,
+      message: "Gemini stream failed"
+    )
+  }
+
   @Test("Anthropic deltas are bound to the content block type that opened them")
   func anthropicContentBlockTypeIsEnforced() throws {
     let request = try makeRequest(providerID: BuiltInProviderID.anthropic)
@@ -2591,7 +2684,13 @@ struct ProviderRuntimeTests {
         ))
     }
 
-    let thinkingDecoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(for: request)
+    let qualifiedThinkingRequest = try makeRequest(
+      providerID: BuiltInProviderID.anthropic,
+      reasoning: .effort(.high)
+    )
+    let thinkingDecoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(
+      for: qualifiedThinkingRequest
+    )
     _ = try thinkingDecoder.consume(
       .init(
         event: "message_start",
@@ -2628,15 +2727,96 @@ struct ProviderRuntimeTests {
       ).isEmpty)
   }
 
+  @Test("Anthropic private thinking and signatures are ignored without explicit summaries")
+  func anthropicPrivateThinkingIsNotPublished() throws {
+    let request = try makeRequest(providerID: BuiltInProviderID.anthropic)
+    let decoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(for: request)
+    _ = try decoder.consume(
+      .init(
+        event: "message_start",
+        data: #"{"type":"message_start","message":{"id":"private"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    _ = try decoder.consume(
+      .init(
+        event: "content_block_start",
+        data:
+          #"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"private","signature":"sig"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "content_block_delta",
+          data:
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"private"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ).isEmpty)
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "content_block_delta",
+          data:
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ).isEmpty)
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "content_block_stop",
+          data: #"{"type":"content_block_stop","index":0}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ).isEmpty)
+  }
+
+  @Test("OpenAI chat pins the first reasoning alias across the stream")
+  func openAIChatReasoningAliasIsPinned() throws {
+    let decoder = try OpenAIChatAdapter(kind: .openRouter).makeDecoder(
+      for: makeRequest(providerID: BuiltInProviderID.openRouter)
+    )
+    #expect(
+      try decoder.consume(
+        .init(
+          event: nil,
+          data: #"{"choices":[{"index":0,"delta":{"reasoning_content":"first"}}]}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ) == [.reasoningDelta("first")])
+    do {
+      _ = try decoder.consume(
+        .init(
+          event: nil,
+          data: #"{"choices":[{"index":0,"delta":{"reasoning":"switched"}}]}"#,
+          id: nil,
+          retryMilliseconds: nil
+        ))
+      Issue.record("chat reasoning alias switched without a malformed failure")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .malformedResponse)
+      #expect(failure.message == "chat stream changed reasoning field mid-response")
+    }
+  }
+
   @Test("Retry-After dates use the injected time and token totals fail on overflow")
   func deterministicRetryAfterAndUsageOverflow() throws {
     let failure = ProviderWireError.httpFailure(
       statusCode: 429,
       headers: ["retry-after": "Thu, 01 Jan 1970 00:00:02 GMT"],
-      body: Data(),
+      body: Data(#"{"error":{"message":"secret-provider-diagnostic"}}"#.utf8),
       now: Date(timeIntervalSince1970: 1)
     )
     #expect(failure.retryAfterMilliseconds == 1_000)
+    #expect(failure.message == "provider HTTP request failed with status 429")
+    #expect(!failure.message.contains("secret-provider-diagnostic"))
 
     let decoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(
       for: makeRequest(providerID: BuiltInProviderID.anthropic)
@@ -2721,7 +2901,10 @@ struct ProviderRuntimeTests {
 
   @Test("Gemini exposes displayable thought summaries and preserves initial function arguments")
   func geminiThoughtAndInitialFunctionArguments() throws {
-    let request = try makeRequest(providerID: BuiltInProviderID.gemini)
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.gemini,
+      reasoning: .effort(.high)
+    )
     let decoder = try GeminiInteractionsAdapter().makeDecoder(for: request)
     #expect(
       try decoder.consume(
@@ -2782,6 +2965,29 @@ struct ProviderRuntimeTests {
               arguments: ["city": "Seoul"]
             ))
         ])
+  }
+
+  @Test("Gemini automatic reasoning does not publish thought summaries")
+  func geminiAutomaticThoughtSummaryIsIgnored() throws {
+    let request = try makeRequest(providerID: BuiltInProviderID.gemini)
+    let decoder = try GeminiInteractionsAdapter().makeDecoder(for: request)
+    _ = try decoder.consume(
+      .init(
+        event: "step.start",
+        data: #"{"event_type":"step.start","index":0,"step":{"type":"thought"}}"#,
+        id: nil,
+        retryMilliseconds: nil
+      ))
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "step.delta",
+          data:
+            #"{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"provider summary"}}}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ).isEmpty)
   }
 
   @Test("Gemini rejects deltas and stops that do not belong to an active step")
@@ -3064,6 +3270,15 @@ struct ProviderRuntimeTests {
           id: nil,
           retryMilliseconds: nil
         )) == [.reasoningDelta("plan")])
+    #expect(
+      try decoder.consume(
+        .init(
+          event: "response.reasoning_text.delta",
+          data: #"{"type":"response.reasoning_text.delta","delta":"private"}"#,
+          id: nil,
+          retryMilliseconds: nil
+        )
+      ).isEmpty)
     let done = try decoder.consume(
       .init(
         event: "response.completed",
@@ -3111,7 +3326,10 @@ struct ProviderRuntimeTests {
   }
 
   private func verifyAnthropicDecoder() throws {
-    let request = try makeRequest(providerID: BuiltInProviderID.anthropic)
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.anthropic,
+      reasoning: .effort(.high)
+    )
     let decoder = try AnthropicMessagesAdapter(kind: .anthropic).makeDecoder(for: request)
     _ = try decoder.consume(
       .init(
@@ -3188,7 +3406,10 @@ struct ProviderRuntimeTests {
   }
 
   private func verifyGeminiDecoder() throws {
-    let request = try makeRequest(providerID: BuiltInProviderID.gemini)
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.gemini,
+      reasoning: .effort(.high)
+    )
     let decoder = try GeminiInteractionsAdapter().makeDecoder(for: request)
     _ = try decoder.consume(
       .init(

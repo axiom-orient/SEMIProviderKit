@@ -79,7 +79,15 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
   }
 
   package func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder {
-    AnthropicMessagesStreamDecoder()
+    let allowsDisplayableReasoning: Bool
+    if case .effort = request.reasoning {
+      allowsDisplayableReasoning = kind == .anthropic
+    } else {
+      allowsDisplayableReasoning = false
+    }
+    return AnthropicMessagesStreamDecoder(
+      allowsDisplayableReasoning: allowsDisplayableReasoning
+    )
   }
 
   package func inspect(
@@ -297,6 +305,7 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
   }
 
   private var responseID: String?
+  private let allowsDisplayableReasoning: Bool
   private var inputTokens: Int?
   private var outputTokens: Int?
   private var cachedTokens: Int?
@@ -306,6 +315,10 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
   private var messageStarted = false
   private var stopReason: String?
   private var stopped = false
+
+  init(allowsDisplayableReasoning: Bool) {
+    self.allowsDisplayableReasoning = allowsDisplayableReasoning
+  }
 
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent] {
     let root = try ProviderWireValidation.decodeJSON(
@@ -353,7 +366,7 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
         activeBlocks[index] = .text
         return []
       case "thinking":
-        activeBlocks[index] = .reasoning
+        activeBlocks[index] = allowsDisplayableReasoning ? .reasoning : .ignored
         return []
       case "redacted_thinking", "fallback":
         activeBlocks[index] = .ignored
@@ -401,6 +414,11 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
             code: .malformedResponse, message: "Messages thinking delta has no text")
         }
         return thinking.isEmpty ? [] : [.reasoningDelta(thinking)]
+      case (.reasoning, "signature_delta"):
+        // Signatures are provider-private integrity state, not displayable
+        // reasoning. Accept them without publishing or validating their
+        // contents so a qualified summary stream remains well-formed.
+        return []
       case (.tool, "input_json_delta"):
         guard let partial = root.value(at: "delta", "partial_json")?.stringValue,
           var tool = tools[index]
@@ -536,7 +554,7 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
       throw ProviderFailure(
         code: root.value(at: "error", "type")?.stringValue == "overloaded_error"
           ? .serverFailed : .transportFailed,
-        message: root.value(at: "error", "message")?.stringValue ?? "Messages stream failed"
+        message: "Messages stream failed"
       )
     case "ping":
       return []

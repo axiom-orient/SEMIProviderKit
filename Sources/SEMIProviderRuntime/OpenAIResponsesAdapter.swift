@@ -360,7 +360,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
     case "response.output_text.delta":
       guard let delta = root["delta"]?.stringValue, !delta.isEmpty else { return [] }
       return [.textDelta(delta)]
-    case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+    case "response.reasoning_summary_text.delta":
       guard let delta = root["delta"]?.stringValue, !delta.isEmpty else { return [] }
       return [.reasoningDelta(delta)]
     case "response.output_item.added":
@@ -440,11 +440,7 @@ private final class OpenAIResponsesStreamDecoder: ProviderStreamDecoder {
         )
       ]
     case "response.failed", "error":
-      let message =
-        root.value(at: "response", "error", "message")?.stringValue
-        ?? root.value(at: "error", "message")?.stringValue
-        ?? "provider stream failed"
-      throw ProviderFailure(code: .serverFailed, message: message)
+      throw ProviderFailure(code: .serverFailed, message: "provider stream failed")
     case "response.incomplete":
       throw ProviderFailure(code: .serverFailed, message: "provider response was incomplete")
     case "response.refusal.delta", "response.refusal.done":
