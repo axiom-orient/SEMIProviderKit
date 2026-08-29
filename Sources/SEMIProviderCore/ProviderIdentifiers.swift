@@ -251,9 +251,12 @@ public struct ProviderConformanceReceiptID: RawRepresentable, Hashable, Codable,
 public enum BuiltInProviderID {
   public static let codex = required("codex")
   public static let openAI = required("openai")
+  public static let openAICompatible = required("openai-compatible")
   public static let anthropic = required("anthropic")
   public static let gemini = required("gemini")
+  public static let antigravity = required("antigravity")
   public static let openRouter = required("openrouter")
+  public static let xAI = required("xai")
   public static let deepSeek = required("deepseek")
   public static let qwen = required("qwen")
   public static let kimi = required("kimi")

@@ -5,6 +5,7 @@ public enum ProviderProtocolFamily: String, Codable, CaseIterable, Sendable {
   case openAIResponses = "openai_responses"
   case anthropicMessages = "anthropic_messages"
   case geminiInteractions = "gemini_interactions"
+  case geminiCloudCode = "gemini_cloud_code"
   case openAIChatCompletions = "openai_chat_completions"
 }
 

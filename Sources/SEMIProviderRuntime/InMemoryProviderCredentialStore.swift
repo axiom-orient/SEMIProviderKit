@@ -36,6 +36,7 @@ public actor InMemoryProviderCredentialStore: ProviderCredentialStore {
       source: request.credential.source,
       state: .staged,
       endpoint: request.endpoint,
+      options: request.options,
       createdAt: date,
       updatedAt: date
     )
@@ -69,6 +70,7 @@ public actor InMemoryProviderCredentialStore: ProviderCredentialStore {
       source: stagedRecord.source,
       state: .active,
       endpoint: stagedRecord.endpoint,
+      options: stagedRecord.options,
       createdAt: stagedRecord.createdAt,
       updatedAt: date
     )

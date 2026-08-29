@@ -60,8 +60,8 @@ Observation/TCA action으로 투영한다. UI 종속 타입을 Core에 넣지 �
 caller-owned history + validated request
 → credential lease and account identity check
 → provider-native wire request
-→ bounded HTTP/SSE transport
-→ native response parsing
+→ bounded HTTP transport
+→ provider-native SSE 또는 unary JSON response parsing
 → normalized ProviderTurnEvent
 → child task and transport cleanup
 → exactly one terminal event
@@ -85,6 +85,9 @@ terminal은 cleanup 뒤에 공개한다.
 - shutdown은 신규 작업 admission을 닫고 account/execution child task를 join한다.
 - stream은 single-consumer이며 body, SSE, JSON, tool argument, mailbox와 loopback
   connection 모두 상한을 가진다.
+- adapter는 response framing을 명시한다. SSE adapter만 stream parser를 사용하고,
+  unary JSON adapter는 bounded body를 한 번 decode해 같은 normalized event reducer로
+  전달한다. framing을 추측하거나 가짜 stream을 만들지 않는다.
 
 ## Complexity
 
@@ -107,9 +110,12 @@ terminal은 cleanup 뒤에 공개한다.
 
 ## Platform
 
-지원 대상은 macOS 26뿐이다. 따라서 FoundationNetworking, Glibc, portable SHA-256,
-AppKit/Network 부재용 동작 대체 계층은 두지 않는다. Security는 PKCE용 CSPRNG에만
-사용한다.
+`SEMIProviderCore`와 `SEMIProviderRuntime`은 iOS 18+와 macOS 15+를 지원한다.
+`SEMIProviderApple`의 PKCE·callback parser는 두 Apple platform에서 제공하지만,
+AppKit으로 browser를 여는 loopback OAuth session은 macOS 전용이다. iOS host는
+자신의 authorization session을 `ProviderAuthorizationSession`으로 주입해야 하며,
+ProviderKit이 browser UI나 callback scheme을 대체하지 않는다. Security는 PKCE용
+CSPRNG에만 사용한다.
 
 Codex wire version은 `CodexClientVersion`이 패키지 상수로 선언한다.
 `OpenAIResponsesAdapter`는 Responses 요청·SSE codec만 맡는다. 버전 결정은 인접 metadata,

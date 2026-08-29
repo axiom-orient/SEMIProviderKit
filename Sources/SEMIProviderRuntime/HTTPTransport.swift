@@ -58,6 +58,40 @@ package protocol ProviderHTTPTransport: Sendable {
   func open(_ request: ProviderHTTPRequest) async throws -> ProviderHTTPResponse
 }
 
+package struct ClosureProviderHTTPTransport: ProviderHTTPTransport {
+  let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+  package init(
+    handler: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
+  ) {
+    self.handler = handler
+  }
+
+  package func open(_ request: ProviderHTTPRequest) async throws -> ProviderHTTPResponse {
+    let (data, response) = try await handler(request.urlRequest)
+    guard let http = response as? HTTPURLResponse else {
+      throw ProviderTransportError.invalidResponse
+    }
+    guard data.count <= request.maximumResponseBytes else {
+      throw ProviderTransportError.responseTooLarge
+    }
+    let headers = http.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+      guard let key = pair.key as? String else { return }
+      result[key.lowercased()] = String(describing: pair.value)
+    }
+    let stream = AsyncThrowingStream<Data, any Error> { continuation in
+      continuation.yield(data)
+      continuation.finish()
+    }
+    return ProviderHTTPResponse(
+      statusCode: http.statusCode,
+      headers: headers,
+      body: ProviderHTTPBodyStream(stream: stream),
+      cancel: {}
+    )
+  }
+}
+
 extension ProviderHTTPTransport {
   package func send(_ request: ProviderHTTPRequest) async throws -> ProviderHTTPUnaryResponse {
     try Task.checkCancellation()

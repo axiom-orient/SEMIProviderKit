@@ -63,6 +63,12 @@ lifetime에만 존재한다. durable 보존이 필요하면 실제 secret 저장
 Codex `auth.json`은 다른 시스템이 관리하는 외부 입력이며 ProviderKit은 secret을
 복사하지 않고 store가 보존한 검증된 파일 참조를 읽는다.
 
+`ProviderAccountOptions`는 account record와 함께 보존하는 작은 non-secret routing
+metadata다. 값은 최대 16개이며 secret, token, API key를 넣을 수 없다. 현재 Antigravity
+adapter는 `project-id`를 요구하고 bearer material만 허용한다. 이 adapter에는 검증된
+inspect/model-catalog endpoint가 없으므로 `inspect`와 `models`는 typed
+`capabilityMismatch`를 반환한다.
+
 OpenRouter PKCE authorization URL은 provider의 documented `callback_url`,
 `code_challenge`, `code_challenge_method` 형식을 그대로 사용한다. state는 loopback
 callback URL에 caller-owned correlation 값으로 넣고, bound listener와 broker가 callback의
@@ -118,6 +124,8 @@ Git tree가 파일 집합과 내용을 함께 식별한다. build 산출물과 c
 - `lease`는 active record와 그 record에 대응하는 material만 반환한다.
 - `remove`는 정확한 record를 삭제하고 다른 계정의 credential을 건드리지 않는다.
 - `records`는 reconciliation 가능한 staged/active record 전체를 반환한다.
+- `options`는 non-secret metadata만 보존하며 credential material 또는 secret storage의
+  대체물이 아니다.
 
 Package의 `InMemoryProviderCredentialStore`는 actor로 격리된 위 계약의 ephemeral
 구현이다. 파일 I/O, 암호화, 권한 요청이 없고 store 또는 process 수명이 끝나면 내용이

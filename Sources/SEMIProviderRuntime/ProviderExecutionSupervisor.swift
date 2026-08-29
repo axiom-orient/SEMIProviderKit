@@ -377,7 +377,6 @@ package actor ProviderExecutionSession {
     _ response: ProviderHTTPResponse,
     adapter: any ProviderAdapter
   ) async throws -> ProviderCompletion {
-    let decoder = try adapter.makeDecoder(for: request)
     let providerRequestID =
       response.headers["x-request-id"]
       ?? response.headers["request-id"]
@@ -391,31 +390,47 @@ package actor ProviderExecutionSession {
     )
     try await transitionAndPublish(.transportOpened(metadata))
 
-    var sse = ServerSentEventDecoder()
     var completion: ProviderCompletion?
-    for try await chunk in response.body {
+    switch adapter.responseFraming {
+    case .serverSentEvents:
+      let decoder = try adapter.makeDecoder(for: request)
+      var sse = ServerSentEventDecoder()
+      for try await chunk in response.body {
+        try Task.checkCancellation()
+        for event in try sse.feed(chunk) {
+          completion = try await consume(
+            decoder: decoder,
+            event: event,
+            existingCompletion: completion
+          )
+        }
+      }
       try Task.checkCancellation()
-      for event in try sse.feed(chunk) {
+      for event in try sse.finish() {
         completion = try await consume(
           decoder: decoder,
           event: event,
           existingCompletion: completion
         )
       }
-    }
-    try Task.checkCancellation()
-    for event in try sse.finish() {
-      completion = try await consume(
-        decoder: decoder,
-        event: event,
-        existingCompletion: completion
+      for decoded in try decoder.finish() {
+        completion = try await consume(
+          decoded: decoded,
+          existingCompletion: completion
+        )
+      }
+    case .unaryJSON:
+      let body = try await collectBody(
+        response.body,
+        limit: request.constraints.maximumResponseBytes
       )
-    }
-    for decoded in try decoder.finish() {
-      completion = try await consume(
-        decoded: decoded,
-        existingCompletion: completion
-      )
+      try Task.checkCancellation()
+      for decoded in try adapter.decodeUnaryResponse(body, request: request) {
+        completion = try await consume(
+          decoded: decoded,
+          existingCompletion: completion
+        )
+      }
     }
 
     guard let completion else {

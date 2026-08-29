@@ -3,7 +3,10 @@ import PackageDescription
 
 let package = Package(
   name: "SEMIProviderKit",
-  platforms: [.macOS(.v26)],
+  platforms: [
+    .iOS(.v18),
+    .macOS(.v15),
+  ],
   products: [
     .library(name: "SEMIProviderCore", targets: ["SEMIProviderCore"]),
     .library(name: "SEMIProviderRuntime", targets: ["SEMIProviderRuntime"]),

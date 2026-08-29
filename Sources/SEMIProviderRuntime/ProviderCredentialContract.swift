@@ -59,6 +59,7 @@ package enum ProviderCredentialContract {
       active.label == stagedRecord.label,
       active.source == stagedRecord.source,
       active.endpoint == stagedRecord.endpoint,
+      active.options == stagedRecord.options,
       active.createdAt == stagedRecord.createdAt
     else {
       throw ProviderFailure(

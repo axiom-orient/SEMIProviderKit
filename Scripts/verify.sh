@@ -40,4 +40,14 @@ swift test --package-path "$root" --sanitize=address -Xswiftc -warnings-as-error
 swift format lint --recursive "$root/Sources" "$root/Tests"
 python3 "$script_dir/verify-providerkit-boundaries.py" "$root"
 
-printf 'PASS: local build, test, sanitizer, format, and boundary verification\n'
+ios_sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+ios_scratch=$(mktemp -d "${TMPDIR:-/tmp}/semi-providerkit-ios.XXXXXX")
+trap 'rm -rf "$ios_scratch"' EXIT
+swift build \
+  --package-path "$root" \
+  --scratch-path "$ios_scratch" \
+  --triple arm64-apple-ios18.0-simulator \
+  --sdk "$ios_sdk" \
+  -Xswiftc -warnings-as-errors
+
+printf 'PASS: macOS build/test/sanitizer/format/boundaries and iOS build verification\n'

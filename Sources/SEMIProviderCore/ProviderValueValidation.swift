@@ -94,6 +94,7 @@ extension ProviderCredentialRecord {
     case source
     case state
     case endpoint
+    case options
     case createdAt
     case updatedAt
   }
@@ -111,6 +112,7 @@ extension ProviderCredentialRecord {
         ProviderEndpointConfiguration.self,
         forKey: .endpoint
       ),
+      options: try container.decodeIfPresent(ProviderAccountOptions.self, forKey: .options),
       createdAt: try container.decode(Date.self, forKey: .createdAt),
       updatedAt: try container.decode(Date.self, forKey: .updatedAt)
     )

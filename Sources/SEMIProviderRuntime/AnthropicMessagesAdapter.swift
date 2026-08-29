@@ -58,7 +58,7 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
         message: "explicit reasoning effort is not qualified for this Messages provider"
       )
     }
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let authentication = try ProviderWireValidation.requireAuthentication(credential)
     let base =
       credential.record.endpoint?.baseURL
       ?? {
@@ -72,14 +72,23 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
     let headers: [String: String]
     switch kind {
     case .anthropic:
-      headers = [
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "Accept": "text/event-stream",
-      ]
+      switch authentication {
+      case .apiKey(let key):
+        headers = [
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "Accept": "text/event-stream",
+        ]
+      case .bearerToken(let token):
+        headers = [
+          "Authorization": "Bearer \(token)",
+          "anthropic-version": "2023-06-01",
+          "Accept": "text/event-stream",
+        ]
+      }
     case .zai, .miniMax:
       headers = [
-        "Authorization": "Bearer \(key)",
+        "Authorization": "Bearer \(authentication.value)",
         "anthropic-version": "2023-06-01",
         "Accept": "text/event-stream",
       ]
@@ -124,22 +133,30 @@ package struct AnthropicMessagesAdapter: ProviderAdapter {
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) async throws -> ProviderModelCatalogResult {
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let authentication = try ProviderWireValidation.requireAuthentication(credential)
     let endpoint: URL
     let headers: [String: String]
     switch kind {
     case .anthropic:
       let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.anthropic
       endpoint = try ProviderWireValidation.appendPath("/v1/models", to: base)
-      headers = ["x-api-key": key, "anthropic-version": "2023-06-01"]
+      switch authentication {
+      case .apiKey(let key):
+        headers = ["x-api-key": key, "anthropic-version": "2023-06-01"]
+      case .bearerToken(let token):
+        headers = ["Authorization": "Bearer \(token)", "anthropic-version": "2023-06-01"]
+      }
     case .miniMax:
       let base = credential.record.endpoint?.baseURL ?? URL(string: "https://api.minimax.io")!
       endpoint = try ProviderWireValidation.appendPath("/v1/models", to: base)
-      headers = ["Authorization": "Bearer \(key)"]
+      headers = ["Authorization": "Bearer \(authentication.value)"]
     case .zai:
       let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.zaiModels
       endpoint = try ProviderWireValidation.appendPath("/v1/models", to: base)
-      headers = ["Authorization": "Bearer \(key)", "anthropic-version": "2023-06-01"]
+      headers = [
+        "Authorization": "Bearer \(authentication.value)",
+        "anthropic-version": "2023-06-01",
+      ]
     }
     let constraints = try ProviderRequestConstraints(
       timeoutMilliseconds: 60_000,
@@ -396,7 +413,8 @@ private final class AnthropicMessagesStreamDecoder: ProviderStreamDecoder {
           emittedToolCount + tools.count < ProviderTurnRequest.maximumTools
         else {
           throw ProviderFailure(
-            code: .malformedResponse, message: "Messages tool block is invalid or exceeds its limit")
+            code: .malformedResponse, message: "Messages tool block is invalid or exceeds its limit"
+          )
         }
         activeBlocks[index] = .tool
         tools[index] = ToolState(

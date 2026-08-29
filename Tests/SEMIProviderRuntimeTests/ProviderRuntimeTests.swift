@@ -28,7 +28,7 @@ struct ProviderRuntimeTests {
   @Test("Built-in registry exposes exactly the supported provider set")
   func registry() throws {
     let descriptors = BuiltInProviderRegistry().descriptors()
-    #expect(descriptors.count == 10)
+    #expect(descriptors.count == 13)
     #expect(
       Set(descriptors.map(\.id))
         == Set([
@@ -36,7 +36,10 @@ struct ProviderRuntimeTests {
           BuiltInProviderID.openAI,
           BuiltInProviderID.anthropic,
           BuiltInProviderID.gemini,
+          BuiltInProviderID.antigravity,
+          BuiltInProviderID.openAICompatible,
           BuiltInProviderID.openRouter,
+          BuiltInProviderID.xAI,
           BuiltInProviderID.deepSeek,
           BuiltInProviderID.qwen,
           BuiltInProviderID.kimi,
@@ -46,6 +49,79 @@ struct ProviderRuntimeTests {
     let codex = try #require(descriptors.first { $0.id == BuiltInProviderID.codex })
     #expect(codex.displayName == "Codex (ChatGPT subscription)")
     #expect(codex.protocolFamily == .codexResponses)
+  }
+
+  @Test("Antigravity executes bounded unary JSON with bearer and project metadata")
+  func antigravityUnaryExecution() async throws {
+    let accountID = try ProviderAccountID("antigravity-account")
+    let options = try ProviderAccountOptions(values: ["project-id": "project-1"])
+    let record = ProviderCredentialRecord(
+      reference: try ProviderCredentialReference("antigravity-ref"),
+      accountID: accountID,
+      providerID: BuiltInProviderID.antigravity,
+      label: "Antigravity",
+      source: .bearerToken,
+      state: .active,
+      endpoint: nil,
+      options: options,
+      createdAt: Date(timeIntervalSince1970: 1),
+      updatedAt: Date(timeIntervalSince1970: 1)
+    )
+    let lease = ProviderCredentialLease(
+      record: record,
+      material: .bearerToken(try SensitiveValue("antigravity-token"))
+    )
+    let store = try TestCredentialStore(active: [lease])
+    let transport = ScriptedTransport(scripts: [
+      .json(
+        status: 200,
+        body: #"{"response":{"candidates":[{"content":{"parts":[{"text":"unary response"}]}}]}}"#
+      )
+    ])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let request = try makeRequest(
+      providerID: BuiltInProviderID.antigravity,
+      accountID: accountID,
+      requestID: "antigravity-request"
+    )
+
+    var text = ""
+    var terminal: ProviderTerminal?
+    for await event in await runtime.execute(request) {
+      switch event {
+      case .textDelta(let value): text += value
+      case .terminal(let value): terminal = value
+      default: break
+      }
+    }
+
+    #expect(text == "unary response")
+    guard case .completed? = terminal else {
+      Issue.record("Antigravity unary response did not complete")
+      await runtime.shutdown()
+      return
+    }
+    let wire = try #require(await transport.requestsSnapshot().first)
+    #expect(
+      wire.url?.absoluteString
+        == "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent"
+    )
+    #expect(wire.value(forHTTPHeaderField: "Authorization") == "Bearer antigravity-token")
+    let body = try ProviderJSONValue.decode(from: try #require(wire.httpBody))
+    #expect(body["project"]?.stringValue == "project-1")
+    #expect(body["requestType"]?.stringValue == "agent")
+
+    await expectCapabilityMismatch {
+      _ = try await runtime.inspect(accountID: accountID)
+    }
+    await expectCapabilityMismatch {
+      _ = try await runtime.models(accountID: accountID)
+    }
+    await runtime.shutdown()
   }
 
   @Test("Public in-memory credential store provides an ephemeral account lifecycle")
@@ -1958,13 +2034,15 @@ struct ProviderRuntimeTests {
         ]
       ],
     ]
+    let transportTermination = AsyncGate()
     let transport = ScriptedTransport(scripts: [
       .sse(
         status: 200,
         events: [
           "data: \(String(decoding: try chunk.encodedData(), as: UTF8.self))\n\n",
           "data: [DONE]\n\n",
-        ]
+        ],
+        terminationGate: transportTermination
       )
     ])
     let runtime = ProviderRuntime(
@@ -1984,7 +2062,8 @@ struct ProviderRuntimeTests {
         tools: [tool]
       )
     )
-    try await Task.sleep(for: .milliseconds(50))
+    await transportTermination.waitUntilObserved()
+    await transportTermination.release()
 
     var terminal: ProviderTerminal?
     for await event in stream {
@@ -3881,17 +3960,20 @@ private actor ScriptedTransport: ProviderHTTPTransport {
     let headers: [String: String]
     let chunks: [Data]
     let completionError: ProviderTransportError?
+    let terminationGate: AsyncGate?
 
     init(
       status: Int,
       headers: [String: String],
       chunks: [Data],
-      completionError: ProviderTransportError? = nil
+      completionError: ProviderTransportError? = nil,
+      terminationGate: AsyncGate? = nil
     ) {
       self.status = status
       self.headers = headers
       self.chunks = chunks
       self.completionError = completionError
+      self.terminationGate = terminationGate
     }
 
     static func json(status: Int, body: String) -> Script {
@@ -3903,11 +3985,16 @@ private actor ScriptedTransport: ProviderHTTPTransport {
       )
     }
 
-    static func sse(status: Int, events: [String]) -> Script {
+    static func sse(
+      status: Int,
+      events: [String],
+      terminationGate: AsyncGate? = nil
+    ) -> Script {
       .init(
         status: status, headers: ["content-type": "text/event-stream"],
         chunks: events.map { Data($0.utf8) },
-        completionError: nil
+        completionError: nil,
+        terminationGate: terminationGate
       )
     }
   }
@@ -3937,7 +4024,10 @@ private actor ScriptedTransport: ProviderHTTPTransport {
       statusCode: script.status,
       headers: script.headers,
       body: ProviderHTTPBodyStream(stream: stream),
-      cancel: {}
+      cancel: {},
+      waitForTermination: { [terminationGate = script.terminationGate] in
+        if let terminationGate { await terminationGate.wait() }
+      }
     )
   }
 

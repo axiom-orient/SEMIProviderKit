@@ -15,30 +15,52 @@ package enum CodexCredentialResolver {
   package static func resolve(_ material: ProviderCredentialMaterial) async throws
     -> CodexResolvedCredential
   {
-    guard case .externalAuthFile(let path) = material else {
+    let accessToken: String
+    let accountID: String
+    switch material {
+    case .openAIAccount(let token, let account):
+      accessToken = token.revealed
+      accountID = account
+    case .externalAuthFile(let path):
+      let authURL = URL(fileURLWithPath: path)
+      let auth = try SecureRegularFileReader.read(authURL, maximumBytes: maximumAuthBytes)
+      let root = try ProviderJSONValue.decode(from: auth)
+      guard let rawAccessToken = root.value(at: "tokens", "access_token")?.stringValue,
+        let rawAccountID = root.value(at: "tokens", "account_id")?.stringValue
+      else {
+        throw ProviderFailure(
+          code: .authenticationFailed,
+          message: "Codex auth.json does not contain supported ChatGPT credentials"
+        )
+      }
+      do {
+        accessToken = try SensitiveValue(rawAccessToken).revealed
+      } catch {
+        throw ProviderFailure(
+          code: .authenticationFailed, message: "Codex auth.json contains an invalid access token")
+      }
+      accountID = rawAccountID
+    case .apiKey, .bearerToken, .oauthDerivedKey:
       throw ProviderFailure(
-        code: .authenticationFailed, message: "Codex requires an external auth.json reference")
+        code: .authenticationFailed,
+        message: "Codex requires a ChatGPT account credential"
+      )
     }
-    let authURL = URL(fileURLWithPath: path)
-    let auth = try SecureRegularFileReader.read(authURL, maximumBytes: maximumAuthBytes)
-    let root = try ProviderJSONValue.decode(from: auth)
-    guard let rawAccessToken = root.value(at: "tokens", "access_token")?.stringValue,
-      let accountID = root.value(at: "tokens", "account_id")?.stringValue,
-      accountID == accountID.trimmingCharacters(in: .whitespacesAndNewlines),
+    guard accountID == accountID.trimmingCharacters(in: .whitespacesAndNewlines),
       !accountID.isEmpty,
       accountID.utf8.count <= 512,
       !accountID.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
     else {
       throw ProviderFailure(
         code: .authenticationFailed,
-        message: "Codex auth.json does not contain supported ChatGPT credentials")
+        message: "Codex credential does not contain a supported ChatGPT account ID"
+      )
     }
-    let accessToken: String
-    do {
-      accessToken = try SensitiveValue(rawAccessToken).revealed
-    } catch {
+    guard (try? SensitiveValue(accessToken)) != nil else {
       throw ProviderFailure(
-        code: .authenticationFailed, message: "Codex auth.json contains an invalid access token")
+        code: .authenticationFailed,
+        message: "Codex credential contains an invalid access token"
+      )
     }
     let version = CodexClientVersion.resolve()
     return .init(accessToken: accessToken, accountID: accountID, clientVersion: version)

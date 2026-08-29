@@ -103,13 +103,30 @@ package enum ProviderDecodedEvent: Equatable, Sendable {
   case completed(ProviderCompletionDraft)
 }
 
+package enum ProviderCredentialAuthentication: Sendable {
+  case apiKey(String)
+  case bearerToken(String)
+
+  package var value: String {
+    switch self {
+    case .apiKey(let value), .bearerToken(let value): value
+    }
+  }
+}
+
 package protocol ProviderStreamDecoder: AnyObject {
   func consume(_ event: ServerSentEvent) throws -> [ProviderDecodedEvent]
   func finish() throws -> [ProviderDecodedEvent]
 }
 
+package enum ProviderResponseFraming: Sendable {
+  case serverSentEvents
+  case unaryJSON
+}
+
 package protocol ProviderAdapter: Sendable {
   var descriptor: ProviderDescriptor { get }
+  var responseFraming: ProviderResponseFraming { get }
   /// Async because a credential source may need bounded off-actor work (for
   /// example resolving an externally managed client version) before the wire
   /// request exists. Blocking that resolution on the execution actor would stop
@@ -119,6 +136,10 @@ package protocol ProviderAdapter: Sendable {
     credential: ProviderCredentialLease
   ) async throws -> ProviderHTTPRequest
   func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder
+  func decodeUnaryResponse(
+    _ data: Data,
+    request: ProviderTurnRequest
+  ) throws -> [ProviderDecodedEvent]
   func inspect(
     credential: ProviderCredentialLease,
     transport: any ProviderHTTPTransport,
@@ -129,6 +150,30 @@ package protocol ProviderAdapter: Sendable {
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) async throws -> ProviderModelCatalogResult
+}
+
+extension ProviderAdapter {
+  package var responseFraming: ProviderResponseFraming { .serverSentEvents }
+
+  package func makeDecoder(for request: ProviderTurnRequest) throws -> any ProviderStreamDecoder {
+    _ = request
+    throw ProviderFailure(
+      code: .internalInvariant,
+      message: "unary provider attempted SSE decoder construction"
+    )
+  }
+
+  package func decodeUnaryResponse(
+    _ data: Data,
+    request: ProviderTurnRequest
+  ) throws -> [ProviderDecodedEvent] {
+    _ = data
+    _ = request
+    throw ProviderFailure(
+      code: .internalInvariant,
+      message: "SSE provider attempted unary response decoding"
+    )
+  }
 }
 
 package enum ProviderWireError {
@@ -370,15 +415,28 @@ package enum ProviderWireValidation {
     return array
   }
 
-  package static func requireAPIKey(_ lease: ProviderCredentialLease) throws -> String {
+  package static func requireAuthentication(
+    _ lease: ProviderCredentialLease
+  ) throws -> ProviderCredentialAuthentication {
     switch lease.material {
-    case .apiKey(let value), .oauthDerivedKey(let value):
-      return value.revealed
-    case .externalAuthFile:
+    case .apiKey(let value): return .apiKey(value.revealed)
+    case .bearerToken(let value), .oauthDerivedKey(let value): return .bearerToken(value.revealed)
+    case .openAIAccount, .externalAuthFile:
       throw ProviderFailure(
         code: .authenticationFailed,
-        message: "this provider requires an API key credential"
+        message: "this provider requires an API key or bearer-token credential"
       )
+    }
+  }
+
+  package static func requireBearerToken(_ lease: ProviderCredentialLease) throws -> String {
+    switch try requireAuthentication(lease) {
+    case .apiKey:
+      throw ProviderFailure(
+        code: .authenticationFailed,
+        message: "this provider requires a bearer-token credential"
+      )
+    case .bearerToken(let value): return value
     }
   }
 

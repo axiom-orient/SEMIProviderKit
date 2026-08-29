@@ -1,6 +1,6 @@
 # SEMIProviderKit
 
-macOS 26에서 Provider·계정·모델을 선택해 모델 turn을 직접 실행하는 Swift 6 package다.
+iOS 18+와 macOS 15+에서 Provider·계정·모델을 선택해 모델 turn을 직접 실행하는 Swift 6 package다.
 반복 대화는 호출자가 이전 assistant 응답을 포함한 history를 다음 immutable request에
 다시 넣어 실행한다. 상태 전이는 pure reducer, 공유 가변 상태는 actor, 외부 작업은
 명시적 effect와 protocol 경계로 분리한다.
@@ -14,7 +14,7 @@ Agent orchestration, UI, tool 실행 권한, cross-provider fallback, durable Ag
 | --- | --- |
 | `SEMIProviderCore` | 검증된 값, 상태·event·effect, pure reducer, bounded event stream |
 | `SEMIProviderRuntime` | account/execution actor, Provider wire codec, HTTP/SSE, retry·cancel·recovery |
-| `SEMIProviderApple` | CryptoKit/Security 기반 PKCE와 AppKit/Network loopback OAuth |
+| `SEMIProviderApple` | CryptoKit/Security 기반 PKCE와 callback parser, macOS loopback OAuth |
 
 의존 방향은 `Runtime → Core ← Apple`이며 Runtime과 Apple은 서로 의존하지 않는다.
 
@@ -58,6 +58,14 @@ credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하�
 
 기본 subscription provider의 공개 ID는 `codex`다.
 
+내장 registry는 Codex·OpenAI Responses, OpenAI-compatible Chat Completions,
+Anthropic Messages, Gemini Interactions, OpenRouter, xAI, DeepSeek, Qwen, Kimi,
+Z.AI, MiniMax와 Antigravity Cloud Code를 명시적으로 구분한다. Antigravity는
+bearer credential과 non-secret `project-id` account option이 필요한 unary JSON
+dialect다. 검증된 account-inspection·model-catalog endpoint가 없으므로 그 두 control
+operation은 성공처럼 처리하지 않고 `capabilityMismatch`로 거부한다. 실제 제공자 호출은
+각 계정·모델·권한 조합으로 별도 qualification이 필요하다.
+
 Codex의 반복 대화는 server-side `ProviderContinuation`이 아니라 caller-owned history를
 사용한다. 매 turn의 terminal `.textDelta`를 모아 `.assistant` message로 추가하고, 다음
 `.user` message와 함께 새 request ID로 `execute`한다. Codex가 지원하지 않는
@@ -92,7 +100,7 @@ Git commit이 canonical source identity다. GitHub Actions나 GitHub CI는 사�
 배제한다. `Package.resolved`는 향후 생성되면 dependency 변경을 검토할 수 있도록
 추적한다.
 
-지원·검증 대상은 macOS 26과 Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
+지원·검증 대상은 iOS 18+, macOS 15, Swift 6.2 이상이다. 상세한 입력·출력·산출물 소유권은
 [`Docs/INTERFACE_CONTRACT.md`](Docs/INTERFACE_CONTRACT.md)에 있다.
 
 ## 공개 경계

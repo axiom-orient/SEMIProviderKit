@@ -20,6 +20,10 @@ EXPECTED_PRODUCTS = {
     "SEMIProviderRuntime": ("SEMIProviderRuntime",),
     "SEMIProviderApple": ("SEMIProviderApple",),
 }
+EXPECTED_PLATFORMS = [
+    {"platformName": "ios", "version": "18.0"},
+    {"platformName": "macos", "version": "15.0"},
+]
 EXPECTED_TARGETS = {
     "SEMIProviderCore": ("regular", ()),
     "SEMIProviderRuntime": ("regular", ("SEMIProviderCore",)),
@@ -102,6 +106,15 @@ def verify(root: Path) -> list[str]:
         fail(errors, "external SwiftPM dependencies are not allowed")
     if package.get("swiftLanguageVersions") != ["6"]:
         fail(errors, f"unexpected Swift language modes: {package.get('swiftLanguageVersions')!r}")
+    platforms = [
+        {
+            "platformName": value.get("platformName"),
+            "version": value.get("version"),
+        }
+        for value in package.get("platforms", [])
+    ]
+    if platforms != EXPECTED_PLATFORMS:
+        fail(errors, f"platform support drifted: {platforms!r}")
 
     products: dict[str, tuple[str, ...]] = {}
     for product in package.get("products", []):

@@ -58,9 +58,10 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
         "version": auth.clientVersion,
         "User-Agent": "codex-cli/\(auth.clientVersion)",
         "Accept": "text/event-stream",
+        "OpenAI-Beta": "responses=experimental",
       ]
     case .openAI:
-      let key = try ProviderWireValidation.requireAPIKey(credential)
+      let key = try ProviderWireValidation.requireAuthentication(credential).value
       let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.openAI
       endpoint = try ProviderWireValidation.appendPath(
         credential.record.endpoint == nil ? "/v1/responses" : "/responses",
@@ -134,7 +135,7 @@ package struct OpenAIResponsesAdapter: ProviderAdapter {
         "User-Agent": "codex-cli/\(auth.clientVersion)",
       ]
     case .openAI:
-      let key = try ProviderWireValidation.requireAPIKey(credential)
+      let key = try ProviderWireValidation.requireAuthentication(credential).value
       let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.openAI
       endpoint = try ProviderWireValidation.appendPath(
         credential.record.endpoint == nil ? "/v1/models" : "/models",

@@ -95,7 +95,8 @@ public enum ProviderAccountReducer {
           record.label == request.label,
           record.source == request.credential.source,
           record.state == .staged,
-          record.endpoint == request.endpoint
+          record.endpoint == request.endpoint,
+          record.options == request.options
         else {
           throw invalidTransition("staged credential does not match registration")
         }

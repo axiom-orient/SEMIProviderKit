@@ -24,6 +24,7 @@ public struct SensitiveValue: Equatable, Sendable, CustomStringConvertible,
 
 public enum ProviderCredentialSource: String, Codable, CaseIterable, Sendable {
   case apiKey = "api_key"
+  case bearerToken = "bearer_token"
   case oauthDerivedKey = "oauth_derived_key"
   case externalAuthFileReference = "external_auth_file_reference"
 }
@@ -32,15 +33,35 @@ public enum ProviderCredentialMaterial: Equatable, Sendable, CustomStringConvert
   CustomDebugStringConvertible
 {
   case apiKey(SensitiveValue)
+  case bearerToken(SensitiveValue)
   case oauthDerivedKey(SensitiveValue)
+  /// An already-authorized ChatGPT account credential supplied by the host.
+  /// The access token is never persisted by ProviderKit's record metadata.
+  case openAIAccount(accessToken: SensitiveValue, accountID: String)
   case externalAuthFile(path: String)
 
   public var source: ProviderCredentialSource {
     switch self {
     case .apiKey: .apiKey
+    case .bearerToken: .bearerToken
     case .oauthDerivedKey: .oauthDerivedKey
+    case .openAIAccount: .oauthDerivedKey
     case .externalAuthFile: .externalAuthFileReference
     }
+  }
+
+  public static func chatGPTAccount(
+    accessToken: SensitiveValue,
+    accountID: String
+  ) throws -> ProviderCredentialMaterial {
+    guard accountID == accountID.trimmingCharacters(in: .whitespacesAndNewlines),
+      !accountID.isEmpty,
+      accountID.utf8.count <= 512,
+      !accountID.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+    else {
+      throw ProviderCoreError(code: .invalidValue, message: "OpenAI account ID is invalid")
+    }
+    return .openAIAccount(accessToken: accessToken, accountID: accountID)
   }
 
   public init(externalAuthFilePath path: String) throws {
@@ -77,19 +98,63 @@ public struct ProviderEndpointConfiguration: Codable, Equatable, Sendable {
   }
 }
 
+/// Non-secret, provider-specific routing values attached to one account.
+/// Credentials must remain in `ProviderCredentialMaterial` and never be put
+/// in this metadata container.
+public struct ProviderAccountOptions: Codable, Equatable, Sendable {
+  public let values: [String: String]
+
+  public init(values: [String: String]) throws {
+    guard values.count <= 16 else {
+      throw ProviderCoreError(
+        code: .invalidValue, message: "provider account options are oversized")
+    }
+    for (key, value) in values {
+      guard !key.isEmpty,
+        key.utf8.count <= 64,
+        key.utf8.allSatisfy({ byte in
+          switch byte {
+          case 45, 46, 48...57, 95, 97...122: true
+          default: false
+          }
+        }),
+        value == value.trimmingCharacters(in: .whitespacesAndNewlines),
+        !value.isEmpty,
+        value.utf8.count <= 1_024,
+        !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+      else {
+        throw ProviderCoreError(code: .invalidValue, message: "provider account option is invalid")
+      }
+    }
+    self.values = values
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    try self.init(values: container.decode([String: String].self))
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(values)
+  }
+}
+
 public struct ProviderAccountRegistrationRequest: Equatable, Sendable {
   public let accountID: ProviderAccountID
   public let providerID: ProviderID
   public let label: String
   public let credential: ProviderCredentialMaterial
   public let endpoint: ProviderEndpointConfiguration?
+  public let options: ProviderAccountOptions?
 
   public init(
     accountID: ProviderAccountID,
     providerID: ProviderID,
     label: String,
     credential: ProviderCredentialMaterial,
-    endpoint: ProviderEndpointConfiguration? = nil
+    endpoint: ProviderEndpointConfiguration? = nil,
+    options: ProviderAccountOptions? = nil
   ) throws {
     guard label == label.trimmingCharacters(in: .whitespacesAndNewlines),
       !label.isEmpty,
@@ -103,6 +168,7 @@ public struct ProviderAccountRegistrationRequest: Equatable, Sendable {
     self.label = label
     self.credential = credential
     self.endpoint = endpoint
+    self.options = options
   }
 }
 
@@ -119,6 +185,7 @@ public struct ProviderCredentialRecord: Codable, Equatable, Sendable {
   public let source: ProviderCredentialSource
   public let state: ProviderCredentialRecordState
   public let endpoint: ProviderEndpointConfiguration?
+  public let options: ProviderAccountOptions?
   public let createdAt: Date
   public let updatedAt: Date
 
@@ -130,6 +197,7 @@ public struct ProviderCredentialRecord: Codable, Equatable, Sendable {
     source: ProviderCredentialSource,
     state: ProviderCredentialRecordState,
     endpoint: ProviderEndpointConfiguration?,
+    options: ProviderAccountOptions? = nil,
     createdAt: Date,
     updatedAt: Date
   ) {
@@ -140,6 +208,7 @@ public struct ProviderCredentialRecord: Codable, Equatable, Sendable {
     self.source = source
     self.state = state
     self.endpoint = endpoint
+    self.options = options
     self.createdAt = createdAt
     self.updatedAt = updatedAt
   }

@@ -40,6 +40,31 @@ public actor ProviderRuntime {
     self.openRouterOAuthBroker = OpenRouterOAuthBroker(transport: transport, clock: clock)
   }
 
+  /// Creates a runtime with a host-supplied unary HTTP boundary. This is
+  /// intended for host integration tests and adapters that already own their
+  /// network transport; production callers should use the default initializer.
+  public init(
+    credentialStore: any ProviderCredentialStore,
+    requestHandler: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse),
+    clock: any ProviderClock = SystemProviderClock()
+  ) {
+    let registry = BuiltInProviderRegistry()
+    let transport = ClosureProviderHTTPTransport(handler: requestHandler)
+    self.accountSupervisor = ProviderAccountSupervisor(
+      registry: registry,
+      store: credentialStore,
+      transport: transport,
+      clock: clock
+    )
+    self.executionSupervisor = ProviderExecutionSupervisor(
+      registry: registry,
+      store: credentialStore,
+      transport: transport,
+      clock: clock
+    )
+    self.openRouterOAuthBroker = OpenRouterOAuthBroker(transport: transport, clock: clock)
+  }
+
   package init(
     credentialStore: any ProviderCredentialStore,
     transport: any ProviderHTTPTransport,

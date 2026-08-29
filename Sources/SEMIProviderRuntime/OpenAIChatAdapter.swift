@@ -3,7 +3,9 @@ import SEMIProviderCore
 
 package struct OpenAIChatAdapter: ProviderAdapter {
   package enum Kind: Equatable, Sendable {
+    case openAICompatible
     case openRouter
+    case xAI
     case deepSeek
     case qwen
     case kimi
@@ -13,6 +15,14 @@ package struct OpenAIChatAdapter: ProviderAdapter {
 
   package var descriptor: ProviderDescriptor {
     switch kind {
+    case .openAICompatible:
+      ProviderDescriptorFactory.make(
+        id: BuiltInProviderID.openAICompatible,
+        name: "OpenAI-compatible",
+        family: .openAIChatCompletions,
+        apiKey: true,
+        explicitEndpoint: true
+      )
     case .openRouter:
       ProviderDescriptorFactory.make(
         id: BuiltInProviderID.openRouter,
@@ -20,6 +30,13 @@ package struct OpenAIChatAdapter: ProviderAdapter {
         family: .openAIChatCompletions,
         apiKey: true,
         oauth: true
+      )
+    case .xAI:
+      ProviderDescriptorFactory.make(
+        id: BuiltInProviderID.xAI,
+        name: "xAI",
+        family: .openAIChatCompletions,
+        apiKey: true
       )
     case .deepSeek:
       ProviderDescriptorFactory.make(
@@ -50,14 +67,14 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     _ request: ProviderTurnRequest,
     credential: ProviderCredentialLease
   ) async throws -> ProviderHTTPRequest {
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let key = try ProviderWireValidation.requireAuthentication(credential).value
     let base = try baseURL(for: credential.record)
     let endpoint = try ProviderWireValidation.appendPath("/chat/completions", to: base)
     var headers = [
       "Authorization": "Bearer \(key)",
       "Accept": "text/event-stream",
     ]
-    if kind == .openRouter { headers["X-OpenRouter-Title"] = "SEMI" }
+    if kind == .openRouter { headers["X-Title"] = "SEMI" }
     if kind == .kimi {
       headers["User-Agent"] = "KimiCLI/1.0"
       headers["X-Msh-Platform"] = "kimi_cli"
@@ -94,7 +111,7 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) async throws -> ProviderModelCatalogResult {
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let key = try ProviderWireValidation.requireAuthentication(credential).value
     let base = try baseURL(for: credential.record)
     let endpoint = try ProviderWireValidation.appendPath("/models", to: base)
     let constraints = try ProviderRequestConstraints(
@@ -139,7 +156,16 @@ package struct OpenAIChatAdapter: ProviderAdapter {
   private func baseURL(for record: ProviderCredentialRecord) throws -> URL {
     if let configured = record.endpoint?.baseURL { return configured }
     switch kind {
+    case .openAICompatible:
+      guard let endpoint = record.endpoint?.baseURL else {
+        throw ProviderFailure(
+          code: .invalidRequest,
+          message: "OpenAI-compatible mode requires an explicit endpoint"
+        )
+      }
+      return endpoint
     case .openRouter: return ProviderEndpointCatalog.openRouter
+    case .xAI: return record.endpoint?.baseURL ?? ProviderEndpointCatalog.xAI
     case .deepSeek: return ProviderEndpointCatalog.deepSeek
     case .qwen:
       throw ProviderFailure(
@@ -266,6 +292,11 @@ package struct OpenAIChatAdapter: ProviderAdapter {
             "strict": true,
           ],
         ]
+      case .openAICompatible, .xAI:
+        throw ProviderFailure(
+          code: .capabilityMismatch,
+          message: "\(descriptor.displayName) does not declare application-validated JSON support"
+        )
       case .deepSeek, .qwen:
         body["response_format"] = ["type": "json_object"]
         messages.insert(
@@ -311,6 +342,12 @@ package struct OpenAIChatAdapter: ProviderAdapter {
     case (.kimi, .effort):
       let forced = request.toolChoice != .automatic && !request.tools.isEmpty
       body["thinking"] = ["type": forced ? "disabled" : "enabled"]
+    case (.openAICompatible, .disabled), (.openAICompatible, .effort),
+      (.xAI, .disabled), (.xAI, .effort):
+      throw ProviderFailure(
+        code: .capabilityMismatch,
+        message: "\(descriptor.displayName) does not declare reasoning controls"
+      )
     }
     if kind == .openRouter {
       body["provider"] = [

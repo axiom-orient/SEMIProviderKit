@@ -40,6 +40,9 @@
 | F-34 | 요청별 immutable selection·continuation policy | ProviderKit | `ProviderTurnRequest.selection`, explicit server-side retention opt-in | active request/retry/continuation wire tests | PASS |
 | F-35 | runtime shutdown/drain | ProviderKit; 제품 lifecycle은 호출자 제품 | lifecycle admission fence, child join | concurrent shutdown tests | PASS |
 | F-36 | caller-owned 반복 대화 | ProviderKit + 호출자 | immutable history를 포함한 연속 `execute`; durable state 없음 | Codex history wire regression, Luna 3-turn live flow | PASS |
+| F-37 | 내장 provider registry | ProviderKit | Codex/OpenAI/compatible/Anthropic/Gemini/OpenRouter/xAI/DeepSeek/Qwen/Kimi/Z.AI/MiniMax/Antigravity adapter | registry descriptor·각 dialect request fixture | PASS |
+| F-38 | unary provider response | ProviderKit | adapter-declared `unaryJSON` framing → bounded body → normalized events | Antigravity request/response integration fixture | PASS |
+| F-39 | Antigravity account control | ProviderKit + 호출자 | bearer + non-secret `project-id`; unqualified inspect/catalog 명시 거부 | capability-mismatch and unary request fixture | LIVE_REQUIRED |
 
 ## 구조적 불변식
 

@@ -10,7 +10,10 @@ package struct BuiltInProviderRegistry: Sendable {
       OpenAIResponsesAdapter(kind: .openAI),
       AnthropicMessagesAdapter(kind: .anthropic),
       GeminiInteractionsAdapter(),
+      AntigravityAdapter(),
+      OpenAIChatAdapter(kind: .openAICompatible),
       OpenAIChatAdapter(kind: .openRouter),
+      OpenAIChatAdapter(kind: .xAI),
       OpenAIChatAdapter(kind: .deepSeek),
       OpenAIChatAdapter(kind: .qwen),
       OpenAIChatAdapter(kind: .kimi),
@@ -40,7 +43,9 @@ package enum ProviderEndpointCatalog {
   package static let codex = URL(string: "https://chatgpt.com/backend-api/codex")!
   package static let anthropic = URL(string: "https://api.anthropic.com")!
   package static let gemini = URL(string: "https://generativelanguage.googleapis.com")!
+  package static let antigravity = URL(string: "https://daily-cloudcode-pa.sandbox.googleapis.com")!
   package static let openRouter = URL(string: "https://openrouter.ai/api/v1")!
+  package static let xAI = URL(string: "https://api.x.ai/v1")!
   package static let deepSeek = URL(string: "https://api.deepseek.com")!
   package static let kimi = URL(string: "https://api.kimi.com/coding/v1")!
   package static let zaiAnthropic = URL(string: "https://api.z.ai/api/anthropic")!

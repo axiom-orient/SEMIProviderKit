@@ -17,7 +17,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
     _ request: ProviderTurnRequest,
     credential: ProviderCredentialLease
   ) async throws -> ProviderHTTPRequest {
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let authentication = try ProviderWireValidation.requireAuthentication(credential)
     let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.gemini
     var components = URLComponents(
       url: try ProviderWireValidation.appendPath("/v1beta/interactions", to: base),
@@ -27,12 +27,14 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
     guard let endpoint = components?.url else {
       throw ProviderFailure(code: .invalidRequest, message: "Gemini interaction URL is invalid")
     }
+    var headers = ["Accept": "text/event-stream"]
+    switch authentication {
+    case .apiKey(let key): headers["x-goog-api-key"] = key
+    case .bearerToken(let token): headers["Authorization"] = "Bearer \(token)"
+    }
     return try ProviderWireValidation.makeJSONRequest(
       url: endpoint,
-      headers: [
-        "x-goog-api-key": key,
-        "Accept": "text/event-stream",
-      ],
+      headers: headers,
       body: try encodeRequest(request),
       constraints: request.constraints
     )
@@ -72,7 +74,7 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
     transport: any ProviderHTTPTransport,
     clock: any ProviderClock
   ) async throws -> ProviderModelCatalogResult {
-    let key = try ProviderWireValidation.requireAPIKey(credential)
+    let authentication = try ProviderWireValidation.requireAuthentication(credential)
     let base = credential.record.endpoint?.baseURL ?? ProviderEndpointCatalog.gemini
     let endpoint = try ProviderWireValidation.appendPath("/v1beta/models", to: base)
     let constraints = try ProviderRequestConstraints(
@@ -80,11 +82,16 @@ package struct GeminiInteractionsAdapter: ProviderAdapter {
       maximumResponseBytes: 16 * 1_024 * 1_024,
       maximumRetryAttempts: 1
     )
+    let headers: [String: String]
+    switch authentication {
+    case .apiKey(let key): headers = ["x-goog-api-key": key]
+    case .bearerToken(let token): headers = ["Authorization": "Bearer \(token)"]
+    }
     let response = try await transport.send(
       ProviderWireValidation.makeJSONRequest(
         url: endpoint,
         method: "GET",
-        headers: ["x-goog-api-key": key],
+        headers: headers,
         body: nil,
         constraints: constraints
       )
