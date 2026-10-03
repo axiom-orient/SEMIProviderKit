@@ -114,3 +114,7 @@ commit을 `git archive`로 추출해 local build·test·boundary gate를 다시 
 ## License
 
 SEMIProviderKit is available under the [MIT License](LICENSE).
+
+## GitHub 배포 분류
+
+SEMIProviderKit의 주 제품은 개발자가 import해 조합하는 Swift provider SDK이므로 canonical 조직은 [`axiom-orient`](https://github.com/axiom-orient)다. 샘플과 검증 실행 파일은 패키지의 보조 표면이다.
