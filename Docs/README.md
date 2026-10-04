@@ -9,7 +9,7 @@ SEMIProviderKit의 현재 계약과 검증 근거다. 충돌하면 `Package.swif
 | [INTERFACE_CONTRACT.md](INTERFACE_CONTRACT.md) | 호출자 입력, 출력, credential·lifecycle 책임 |
 | [FUNCTIONAL_MATRIX.md](FUNCTIONAL_MATRIX.md) | package 소유 기능과 검증 범위 |
 
-시작점은 루트 [README](../README.md)다. 구현 변경 전에는 architecture와 interface
+시작점은 [Integration](INTERFACE_CONTRACT.md#integration)이다. 구현 변경 전에는 architecture와 interface
 contract를 함께 확인한다.
 
 ## 검증과 공개

@@ -138,3 +138,61 @@ Package의 `InMemoryProviderCredentialStore`는 actor로 격리된 위 계약의
 신규 register/execute/control operation은 fail-closed하며, 기존 child task와 transport는
 cancel/join된다. 개별 turn 취소는 `cancel(requestID)`, 계정 제거는 `revoke(accountID:)`
 를 사용한다.
+
+## Requirements
+
+지원·검증 대상은 iOS 18+, macOS 15, Swift 6.2 이상이다.
+
+## Integration
+
+배포 integration에는 검증된 semantic-version tag를 사용한다. 개발 중인 source는
+다음처럼 local dependency로 검증한다.
+
+```swift
+// Package.swift
+.package(path: "../SEMIProviderKit")
+```
+
+```swift
+import SEMIProviderCore
+import SEMIProviderRuntime
+
+let credentialStore = InMemoryProviderCredentialStore()
+let runtime = ProviderRuntime(credentialStore: credentialStore)
+
+for await event in await runtime.register(registrationRequest) {
+  // staging, verifying, activating, ready or failure
+}
+
+let stream = await runtime.execute(turnRequest)
+
+for await event in stream {
+  // started, textDelta, reasoningDelta, toolCall, terminal
+}
+```
+
+`InMemoryProviderCredentialStore`는 영구 저장·권한 요청 없이 process lifetime 동안만
+credential을 보관한다. 앱 재시작 뒤에도 계정을 유지해야 하면
+`ProviderCredentialStore`를 구현해 주입한다. 어느 방식을 쓰든 수명 주기 종료 시
+`await runtime.shutdown()`을 호출한다.
+
+`ProviderContinuation`은 provider 서버의 이전 응답/interaction 상태를 다시 쓰는
+기능이다. 따라서 기본 no-retention 정책에서는 거부되며, continuation을 생성하거나
+사용할 때는 `dataCollection: .allow`와 `requiresZeroDataRetention: false`를 명시해야
+한다.
+
+기본 subscription provider의 공개 ID는 `codex`다.
+
+내장 registry는 Codex·OpenAI Responses, OpenAI-compatible Chat Completions,
+Anthropic Messages, Gemini Interactions, OpenRouter, xAI, DeepSeek, Qwen, Kimi,
+Z.AI, MiniMax와 Antigravity Cloud Code를 명시적으로 구분한다. Antigravity는
+bearer credential과 non-secret `project-id` account option이 필요한 unary JSON
+dialect다. 검증된 account-inspection·model-catalog endpoint가 없으므로 그 두 control
+operation은 성공처럼 처리하지 않고 `capabilityMismatch`로 거부한다. 실제 제공자 호출은
+각 계정·모델·권한 조합으로 별도 qualification이 필요하다.
+
+Codex의 반복 대화는 server-side `ProviderContinuation`이 아니라 caller-owned history를
+사용한다. 매 turn의 terminal `.textDelta`를 모아 `.assistant` message로 추가하고, 다음
+`.user` message와 함께 새 request ID로 `execute`한다. Codex가 지원하지 않는
+`maximumOutputTokens`와 `ProviderContinuation`은 network 전 `capabilityMismatch`로
+거부된다.
