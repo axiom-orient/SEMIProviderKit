@@ -11,6 +11,8 @@ package actor ProviderAccountSupervisor {
   /// account ID can be re-registered as soon as the outcome is observable.
   private var sessions: [UUID: ProviderAccountRegistrationSession] = [:]
   private var accountIndex: [ProviderAccountID: UUID] = [:]
+  /// Revoke boundary forwarded by ProviderRuntime and checked before session admission.
+  private var accountAdmissionGenerations: [ProviderAccountID: UUID] = [:]
   private var inspections: [ProviderAccountID: ProviderAccountInspection] = [:]
   private var shuttingDown = false
 
@@ -100,13 +102,29 @@ package actor ProviderAccountSupervisor {
   }
 
   package func register(
-    _ request: ProviderAccountRegistrationRequest
+    _ request: ProviderAccountRegistrationRequest,
+    admissionGeneration: UUID
   ) async -> ProviderAccountEventStream {
     let (stream, sink) = ProviderAccountEventStream.make()
     guard !shuttingDown else {
       Task {
         _ = await sink.send(
           .failed(ProviderFailure(code: .cancelled, message: "provider runtime is shutting down"))
+        )
+      }
+      return stream
+    }
+    if let currentGeneration = accountAdmissionGenerations[request.accountID],
+      currentGeneration != admissionGeneration
+    {
+      Task {
+        _ = await sink.send(
+          .failed(
+            ProviderFailure(
+              code: .accountUnavailable,
+              message: "provider account registration was invalidated by account revocation"
+            )
+          )
         )
       }
       return stream
@@ -158,7 +176,11 @@ package actor ProviderAccountSupervisor {
     await session.waitUntilFinished()
   }
 
-  package func revoke(accountID: ProviderAccountID) async throws {
+  package func revoke(
+    accountID: ProviderAccountID,
+    admissionGeneration: UUID
+  ) async throws {
+    accountAdmissionGenerations[accountID] = admissionGeneration
     if let registrationID = accountIndex[accountID], let session = sessions[registrationID] {
       await session.cancel()
       await session.waitUntilFinished()

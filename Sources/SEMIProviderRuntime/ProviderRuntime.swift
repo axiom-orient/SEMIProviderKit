@@ -13,6 +13,9 @@ public actor ProviderRuntime {
   private let executionSupervisor: ProviderExecutionSupervisor
   private let openRouterOAuthBroker: OpenRouterOAuthBroker
   private var consumedOAuthStates = OAuthStateReplayWindow(capacity: 4_096)
+  private let initialAdmissionGeneration = UUID()
+  /// Revocation advances the token; the account supervisor mirrors it for its actor-hop check.
+  private var accountAdmissionGenerations: [ProviderAccountID: UUID] = [:]
   private var revokingAccounts: Set<ProviderAccountID> = []
   private var lifecycle: Lifecycle = .running
   private var activeControlOperations = 0
@@ -110,11 +113,15 @@ public actor ProviderRuntime {
     guard lifecycle == .running else {
       return ProviderAccountEventStream.failed(shutdownFailure())
     }
-    return await registerAdmitted(request)
+    return await registerAdmitted(
+      request,
+      admissionGeneration: accountAdmissionGeneration(for: request.accountID)
+    )
   }
 
   private func registerAdmitted(
-    _ request: ProviderAccountRegistrationRequest
+    _ request: ProviderAccountRegistrationRequest,
+    admissionGeneration: UUID
   ) async -> ProviderAccountEventStream {
     guard !revokingAccounts.contains(request.accountID) else {
       return ProviderAccountEventStream.failed(
@@ -124,7 +131,18 @@ public actor ProviderRuntime {
         )
       )
     }
-    return await accountSupervisor.register(request)
+    guard accountAdmissionGeneration(for: request.accountID) == admissionGeneration else {
+      return ProviderAccountEventStream.failed(
+        ProviderFailure(
+          code: .accountUnavailable,
+          message: "provider account registration was invalidated by account revocation"
+        )
+      )
+    }
+    return await accountSupervisor.register(
+      request,
+      admissionGeneration: admissionGeneration
+    )
   }
 
   public func cancelRegistration(accountID: ProviderAccountID) async {
@@ -142,10 +160,15 @@ public actor ProviderRuntime {
         message: "provider account revocation is already active"
       )
     }
+    let admissionGeneration = UUID()
+    accountAdmissionGenerations[accountID] = admissionGeneration
     defer { revokingAccounts.remove(accountID) }
 
     await executionSupervisor.cancelAndJoin(accountID: accountID)
-    try await accountSupervisor.revoke(accountID: accountID)
+    try await accountSupervisor.revoke(
+      accountID: accountID,
+      admissionGeneration: admissionGeneration
+    )
   }
 
   public func registerOpenRouterOAuth(
@@ -154,17 +177,24 @@ public actor ProviderRuntime {
   ) async throws -> ProviderAccountEventStream {
     try beginControlOperation()
     defer { endControlOperation() }
+    try requireAvailable(request.accountID)
     guard consumedOAuthStates.consume(request.pkce.state) else {
       throw ProviderFailure(
         code: .authenticationFailed,
         message: "OpenRouter OAuth state has already been consumed"
       )
     }
+    let admissionGeneration = accountAdmissionGeneration(for: request.accountID)
+
     let registration = try await openRouterOAuthBroker.authorize(
       request,
       using: authorizationSession
     )
-    return await registerAdmitted(registration)
+    try Task.checkCancellation()
+    return await registerAdmitted(
+      registration,
+      admissionGeneration: admissionGeneration
+    )
   }
 
   public func inspect(
@@ -270,5 +300,9 @@ public actor ProviderRuntime {
         message: "provider account is being revoked"
       )
     }
+  }
+
+  private func accountAdmissionGeneration(for accountID: ProviderAccountID) -> UUID {
+    accountAdmissionGenerations[accountID] ?? initialAdmissionGeneration
   }
 }

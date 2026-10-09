@@ -1359,6 +1359,205 @@ struct ProviderRuntimeTests {
     await runtime.shutdown()
   }
 
+  @Test("Revocation invalidates pending OAuth admissions without harming a later session")
+  func revokeInvalidatesPendingOpenRouterOAuthAdmissions() async throws {
+    let account = try ProviderAccountID("oauth-revoked-account")
+    let store = TestCredentialStore()
+    let transport = ScriptedTransport(scripts: [
+      .json(status: 200, body: #"{"key":"stale-oauth-key"}"#),
+      .json(status: 200, body: #"{"key":"fresh-oauth-key"}"#),
+      .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#),
+    ])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+
+    let staleSuccessAuthorization = DeferredAuthorizationSession(callback: .code("stale-code"))
+    let staleSuccess = Task {
+      try await runtime.registerOpenRouterOAuth(
+        openRouterOAuthRequest(accountID: account, state: String(repeating: "a", count: 32)),
+        using: staleSuccessAuthorization
+      )
+    }
+    await staleSuccessAuthorization.waitUntilRequested()
+
+    let staleFailureAuthorization = DeferredAuthorizationSession(
+      callback: .mismatchedState("late-failure-code")
+    )
+    let staleFailureTask = Task {
+      try await runtime.registerOpenRouterOAuth(
+        openRouterOAuthRequest(accountID: account, state: String(repeating: "b", count: 32)),
+        using: staleFailureAuthorization
+      )
+    }
+    await staleFailureAuthorization.waitUntilRequested()
+
+    try await runtime.revoke(accountID: account)
+
+    let freshAuthorization = DeferredAuthorizationSession(callback: .code("fresh-code"))
+    let freshRegistration = Task {
+      try await runtime.registerOpenRouterOAuth(
+        openRouterOAuthRequest(accountID: account, state: String(repeating: "c", count: 32)),
+        using: freshAuthorization
+      )
+    }
+    await freshAuthorization.waitUntilRequested()
+
+    await staleSuccessAuthorization.resume()
+    let staleStream = try await staleSuccess.value
+    var staleTerminal: ProviderAccountPublicEvent?
+    for await event in staleStream { staleTerminal = event }
+    guard case .failed(let staleFailure) = staleTerminal else {
+      Issue.record("OAuth callback that completed after revoke was admitted")
+      return
+    }
+    #expect(staleFailure.code == .accountUnavailable)
+    #expect(try await store.record(accountID: account) == nil)
+
+    await staleFailureAuthorization.resume()
+    do {
+      _ = try await staleFailureTask.value
+      Issue.record("late OAuth callback mismatch was accepted")
+    } catch let failure as ProviderFailure {
+      #expect(failure.code == .authenticationFailed)
+    }
+
+    await freshAuthorization.resume()
+    let freshStream = try await freshRegistration.value
+    var freshTerminal: ProviderAccountPublicEvent?
+    for await event in freshStream { freshTerminal = event }
+    guard case .ready(let summary) = freshTerminal else {
+      Issue.record("post-revoke OAuth registration did not become ready")
+      return
+    }
+    #expect(summary.accountID == account)
+
+    let freshLease = try await store.lease(accountID: account)
+    guard case .oauthDerivedKey(let key) = freshLease.material else {
+      Issue.record("post-revoke registration did not retain its credential")
+      return
+    }
+    #expect(key.revealed == "fresh-oauth-key")
+    #expect(freshLease.record.state == .active)
+    #expect(await transport.requestCount() == 3)
+
+    let duplicate = await runtime.register(
+      try ProviderAccountRegistrationRequest(
+        accountID: account,
+        providerID: BuiltInProviderID.openRouter,
+        label: "duplicate",
+        credential: .apiKey(try SensitiveValue("duplicate-key"))
+      )
+    )
+    var duplicateTerminal: ProviderAccountPublicEvent?
+    for await event in duplicate { duplicateTerminal = event }
+    guard case .failed(let duplicateFailure) = duplicateTerminal else {
+      Issue.record("duplicate account registration displaced the fresh session")
+      return
+    }
+    #expect(duplicateFailure.code == .invalidRequest)
+    #expect((try await store.lease(accountID: account)).record == freshLease.record)
+    await runtime.shutdown()
+  }
+
+  @Test("Supervisor rejects registration from a pre-revoke account generation")
+  func supervisorRejectsStaleAccountAdmissionGeneration() async throws {
+    let account = try ProviderAccountID("generation-account")
+    let store = TestCredentialStore()
+    let transport = ScriptedTransport(scripts: [
+      .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
+    ])
+    let supervisor = ProviderAccountSupervisor(
+      registry: BuiltInProviderRegistry(),
+      store: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let staleGeneration = UUID()
+    let currentGeneration = UUID()
+    try await supervisor.revoke(
+      accountID: account,
+      admissionGeneration: currentGeneration
+    )
+    let request = try ProviderAccountRegistrationRequest(
+      accountID: account,
+      providerID: BuiltInProviderID.openRouter,
+      label: "OpenRouter",
+      credential: .apiKey(try SensitiveValue("generation-test-key"))
+    )
+
+    let stale = await supervisor.register(request, admissionGeneration: staleGeneration)
+    var staleTerminal: ProviderAccountPublicEvent?
+    for await event in stale { staleTerminal = event }
+    guard case .failed(let failure) = staleTerminal else {
+      Issue.record("supervisor admitted a registration from before revoke")
+      return
+    }
+    #expect(failure.code == .accountUnavailable)
+    #expect(try await store.records().isEmpty)
+
+    let fresh = await supervisor.register(request, admissionGeneration: currentGeneration)
+    var freshTerminal: ProviderAccountPublicEvent?
+    for await event in fresh { freshTerminal = event }
+    guard case .ready(let summary) = freshTerminal else {
+      Issue.record("supervisor rejected the current account generation")
+      return
+    }
+    #expect(summary.accountID == account)
+    #expect((try await store.record(accountID: account))?.state == .active)
+    await supervisor.shutdown()
+  }
+
+  @Test("Cancelling pending OAuth does not admit it or block later registration")
+  func cancellingPendingOpenRouterOAuth() async throws {
+    let account = try ProviderAccountID("oauth-cancelled-account")
+    let store = TestCredentialStore()
+    let transport = ScriptedTransport(scripts: [
+      .json(status: 200, body: #"{"data":[{"id":"vendor/model"}]}"#)
+    ])
+    let runtime = ProviderRuntime(
+      credentialStore: store,
+      transport: transport,
+      clock: SystemProviderClock()
+    )
+    let authorization = DeferredAuthorizationSession(callback: .code("cancelled-code"))
+    let cancelledRegistration = Task {
+      try await runtime.registerOpenRouterOAuth(
+        openRouterOAuthRequest(accountID: account, state: String(repeating: "d", count: 32)),
+        using: authorization
+      )
+    }
+    await authorization.waitUntilRequested()
+    cancelledRegistration.cancel()
+    do {
+      _ = try await cancelledRegistration.value
+      Issue.record("cancelled OAuth registration returned normally")
+    } catch is CancellationError {
+    }
+    #expect(try await store.record(accountID: account) == nil)
+
+    let later = await runtime.register(
+      try ProviderAccountRegistrationRequest(
+        accountID: account,
+        providerID: BuiltInProviderID.openRouter,
+        label: "OpenRouter",
+        credential: .apiKey(try SensitiveValue("later-key"))
+      )
+    )
+    var terminal: ProviderAccountPublicEvent?
+    for await event in later { terminal = event }
+    guard case .ready(let summary) = terminal else {
+      Issue.record("later registration was blocked by cancelled OAuth")
+      return
+    }
+    #expect(summary.accountID == account)
+    #expect((try await store.lease(accountID: account)).record.state == .active)
+    #expect(await transport.requestCount() == 1)
+    await runtime.shutdown()
+  }
+
   @Test("OpenRouter OAuth rejects callback mismatch before key exchange")
   func openRouterOAuthCallbackMismatch() async throws {
     let store = TestCredentialStore()
@@ -3783,6 +3982,22 @@ struct ProviderRuntimeTests {
     )
   }
 
+  private func openRouterOAuthRequest(
+    accountID: ProviderAccountID,
+    state: String
+  ) throws -> OpenRouterOAuthRegistrationRequest {
+    try OpenRouterOAuthRegistrationRequest(
+      accountID: accountID,
+      label: "OpenRouter OAuth",
+      callbackURL: try #require(URL(string: "http://127.0.0.1:54321/oauth/openrouter")),
+      pkce: try ProviderPKCE(
+        codeVerifier: SensitiveValue(String(repeating: "v", count: 43)),
+        codeChallenge: String(repeating: "c", count: 43),
+        state: state
+      )
+    )
+  }
+
   private func activeLease(
     accountID: ProviderAccountID,
     providerID: ProviderID,
@@ -4064,6 +4279,63 @@ private actor EchoAuthorizationSession: ProviderAuthorizationSession {
 
   func cancel() async {}
   func lastRequest() -> ProviderAuthorizationRequest? { request }
+}
+
+private enum DeferredAuthorizationCallback: Sendable {
+  case code(String)
+  case mismatchedState(String)
+}
+
+private actor DeferredAuthorizationSession: ProviderAuthorizationSession {
+  private let callback: DeferredAuthorizationCallback
+  private let gate = AsyncGate()
+
+  init(callback: DeferredAuthorizationCallback) {
+    self.callback = callback
+  }
+
+  func authorize(
+    _ request: ProviderAuthorizationRequest
+  ) async throws -> ProviderAuthorizationResult {
+    await gate.wait()
+    guard
+      let authorizationComponents = URLComponents(
+        url: request.authorizationURL,
+        resolvingAgainstBaseURL: false
+      ),
+      let encodedCallback = authorizationComponents.queryItems?.first(where: {
+        $0.name == "callback_url"
+      })?.value,
+      var callbackComponents = URLComponents(string: encodedCallback)
+    else {
+      throw ProviderFailure(
+        code: .internalInvariant,
+        message: "test authorization callback could not be constructed"
+      )
+    }
+
+    var query = callbackComponents.queryItems ?? []
+    switch callback {
+    case .code(let value):
+      query.append(URLQueryItem(name: "code", value: value))
+    case .mismatchedState(let value):
+      query.removeAll { $0.name == "state" }
+      query.append(URLQueryItem(name: "state", value: "wrong-\(request.state)"))
+      query.append(URLQueryItem(name: "code", value: value))
+    }
+    callbackComponents.queryItems = query
+    guard let callbackURL = callbackComponents.url else {
+      throw ProviderFailure(
+        code: .internalInvariant,
+        message: "test authorization callback URL is invalid"
+      )
+    }
+    return ProviderAuthorizationResult(callbackURL: callbackURL)
+  }
+
+  func cancel() async { await gate.release() }
+  func waitUntilRequested() async { await gate.waitUntilObserved() }
+  func resume() async { await gate.release() }
 }
 
 private actor FixedAuthorizationSession: ProviderAuthorizationSession {
